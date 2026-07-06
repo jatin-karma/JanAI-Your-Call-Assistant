@@ -340,15 +340,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📞 Contact
-
-For inquiries, partnerships, or demo requests:
-
-- **Email:** [makewatch7@gmail.com]
-- **Demo Line:** 7415074741
-- **Website:** [janai.app]
-
----
 
 **Join us in bridging India's digital divide!**
 
