@@ -67,6 +67,13 @@ JanAI provides a simple voice-based interface accessible via basic feature phone
 
 ---
 
+## ⚠️ Current Limitations
+
+- **Twilio Trial Restrictions:** Outbound calls ("Call Me Back" feature) only support phone numbers that have been manually verified in the Twilio console due to Trial Account limitations.
+- **Telephony Costs / International Pack:** Direct dialing/inbound calls to JanAI require an active international calling package on the user's mobile plan, as our current demonstration number is an international line.
+
+---
+
 ## 🏗️ Architecture
 
 ### System Components
