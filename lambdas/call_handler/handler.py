@@ -649,7 +649,7 @@ def handle_voice_token(event):
         rl_key = f"rl#{caller_ip}#{today}"
 
         try:
-            rl_item = calls_table.get_item(Key={"call_sid": rl_key}).get("Item")
+            rl_item = calls_table.get_item(Key={"call_id": rl_key}).get("Item")
             token_count = int(rl_item.get("token_count", 0)) if rl_item else 0
 
             if token_count >= MAX_TOKENS_PER_DAY:
@@ -665,7 +665,7 @@ def handle_voice_token(event):
             tomorrow_unix = int(time.mktime(datetime.utcnow().replace(
                 hour=23, minute=59, second=59).timetuple())) + 3601
             calls_table.put_item(Item={
-                "call_sid": rl_key,
+                "call_id": rl_key,
                 "token_count": token_count + 1,
                 "caller_ip": caller_ip,
                 "date": today,
@@ -1931,8 +1931,7 @@ def handle_voice_select(params):
 def _get_call_voice(call_sid: str, fallback_voice: str = "arya") -> str:
     """Read the caller's chosen voice from DynamoDB."""
     try:
-        ts = get_call_timestamp(call_sid)
-        item = calls_table.get_item(Key={"call_id": call_sid, "timestamp": ts}).get("Item", {})
+        item = calls_table.get_item(Key={"call_id": call_sid}).get("Item", {})
         return item.get("voice_speaker", fallback_voice)
     except Exception:
         return fallback_voice
@@ -2421,7 +2420,7 @@ def handle_poll(params):
     deadline = time.time() + 10.0
     while time.time() < deadline:
         try:
-            item = calls_table.get_item(Key={"call_id": job_key, "timestamp": 0}).get("Item")
+            item = calls_table.get_item(Key={"call_id": job_key}).get("Item")
             if item and item.get("status") in acceptable:
                 result = item
                 break
@@ -2456,7 +2455,7 @@ def handle_poll(params):
     if result.get("status") == "error":
         # Clean up job record
         threading.Thread(
-            target=lambda: calls_table.delete_item(Key={"call_id": job_key, "timestamp": 0}),
+            target=lambda: calls_table.delete_item(Key={"call_id": job_key}),
             daemon=True,
         ).start()
         tts_say(response, error_msgs.get(language, error_msgs["en"]), language, speaker=voice)
@@ -2483,7 +2482,7 @@ def handle_poll(params):
     # ── Success — play answer + prompt for next question ───────────
     # Clean up job record (fire-and-forget)
     threading.Thread(
-        target=lambda: calls_table.delete_item(Key={"call_id": job_key, "timestamp": 0}),
+        target=lambda: calls_table.delete_item(Key={"call_id": job_key}),
         daemon=True,
     ).start()
 
@@ -2836,8 +2835,7 @@ def get_conversation_history(call_sid: str) -> list:
     if not call_sid:
         return []
     try:
-        ts = get_call_timestamp(call_sid)
-        result = calls_table.get_item(Key={"call_id": call_sid, "timestamp": ts})
+        result = calls_table.get_item(Key={"call_id": call_sid})
         item = result.get("Item", {})
         return item.get("conversation_history", [])
     except Exception as e:
@@ -3123,9 +3121,8 @@ def ask_again(language: str, voice: str = "", agent: str = ""):
 
 def log_query(call_sid: str, query: str, answer: str, language: str):
     try:
-        timestamp = get_call_timestamp(call_sid)
         calls_table.update_item(
-            Key={"call_id": call_sid, "timestamp": timestamp},
+            Key={"call_id": call_sid},
             UpdateExpression="SET queries_count = queries_count + :one, conversation_history = list_append(conversation_history, :entry)",
             ExpressionAttributeValues={
                 ":one": 1,
