@@ -2190,16 +2190,33 @@ def handle_gather(params):
 
     quick_answer = ""
     try:
-        _stream = bedrock.converse_stream(
-            modelId=BEDROCK_MODEL_ID,
-            system=[{"text": call_system_prompt}],
-            messages=_msgs,
-            inferenceConfig={"maxTokens": 300, "temperature": 0.7, "stopSequences": ["User:", "Human:", "Assistant:"]}
-        )
-        for _ev in _stream.get("stream", []):
-            if "contentBlockDelta" in _ev:
-                quick_answer += _ev["contentBlockDelta"].get("delta", {}).get("text", "")
-        logger.info(f"LLM done call={call_sid}, len={len(quick_answer)}")
+        if LLM_PROVIDER == "openai" and openai_client:
+            _openai_msgs = [{"role": "system", "content": call_system_prompt}]
+            for _t in (history or [])[-10:]:
+                if _t.get("query"):
+                    _openai_msgs.append({"role": "user", "content": _t["query"]})
+                if _t.get("answer"):
+                    _openai_msgs.append({"role": "assistant", "content": _t["answer"]})
+            _openai_msgs.append({"role": "user", "content": _umsg})
+            _resp = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=_openai_msgs,
+                max_tokens=300,
+                temperature=0.7,
+            )
+            quick_answer = _resp.choices[0].message.content.strip()
+            logger.info(f"OpenAI fast path done call={call_sid}, len={len(quick_answer)}")
+        else:
+            _stream = bedrock.converse_stream(
+                modelId=BEDROCK_MODEL_ID,
+                system=[{"text": call_system_prompt}],
+                messages=_msgs,
+                inferenceConfig={"maxTokens": 300, "temperature": 0.7, "stopSequences": ["User:", "Human:", "Assistant:"]}
+            )
+            for _ev in _stream.get("stream", []):
+                if "contentBlockDelta" in _ev:
+                    quick_answer += _ev["contentBlockDelta"].get("delta", {}).get("text", "")
+            logger.info(f"Bedrock fast path done call={call_sid}, len={len(quick_answer)}")
     except Exception as _e:
         logger.warning(f"LLM failed: {_e}")
         quick_answer = {"hi": "माफ करें, कुछ समस्या आई। फिर से पूछिए।",
@@ -2322,12 +2339,20 @@ def handle_gather(params):
                        "ta": "மன்னிக்கவும், தகவல் கிடைக்கவில்லை. மீண்டும் கேளுங்கள்.",
                        "en": "Sorry, I couldn't find that information. Please ask again."}
                 data_answer = _fb.get(language, _fb["en"])
-            # Save TEXT only — TTS is generated synchronously in the poll handler (more reliable in Lambda)
+            # Pre-generate TTS in the background thread to reduce post-hold latency
+            logger.info("Generating background TTS audio chunks...")
+            try:
+                bg_audio_urls = _tts_chunks_parallel(data_answer, language, voice)
+            except Exception as tts_err:
+                logger.warning(f"Background TTS failed: {tts_err}")
+                bg_audio_urls = []
+
+            # Save TEXT and the generated audio URLs
             calls_table.put_item(Item={
                 "call_id": job_key, "timestamp": 0, "status": "done",
                 "answer": data_answer,
-                "audio_urls": [],
-                "audio_url": "",
+                "audio_urls": bg_audio_urls,
+                "audio_url": bg_audio_urls[0] if bg_audio_urls else "",
                 "lang": language,
                 "voice": voice,
                 "ttl": int(time.time()) + 300,
@@ -2471,13 +2496,23 @@ def handle_poll(params):
     follow_up = follow_ups.get(language, follow_ups["en"])
     goodbye   = goodbyes.get(language, goodbyes["en"])
 
-    # Always generate TTS synchronously here — more reliable than relying on background-thread URLs
+    # Play pre-generated audio URLs if available, otherwise generate synchronously
+    audio_urls = result.get("audio_urls", [])
+    if not audio_urls and result.get("audio_url"):
+        audio_urls = [result["audio_url"]]
+
     if answer:
-        audio_urls = _tts_chunks_parallel(answer, language, stored_voice)
-        for url in audio_urls:
-            response.play(url)
-        if not audio_urls:
-            tts_say(response, answer, language, speaker=stored_voice)
+        if audio_urls:
+            logger.info(f"Using pre-generated background TTS audio URLs: {audio_urls}")
+            for url in audio_urls:
+                response.play(url)
+        else:
+            logger.info("No pre-generated background TTS audio URLs found; generating synchronously")
+            audio_urls = _tts_chunks_parallel(answer, language, stored_voice)
+            for url in audio_urls:
+                response.play(url)
+            if not audio_urls:
+                tts_say(response, answer, language, speaker=stored_voice)
     _append_listen_gather(response, language, stored_voice, current_agent)
     # Goodbye: also use TTS for naturalness
     tts_say(response, goodbye, language, speaker=stored_voice)
