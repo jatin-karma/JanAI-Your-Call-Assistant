@@ -156,12 +156,12 @@ export default function Home() {
               {/* CTAs */}
               <div className="flex flex-wrap items-center gap-3 mb-5">
                 <a
-                  href="tel:+18312988145"
+                  href="tel:+18312530646"
                   className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-bold text-white text-[15px] active:scale-[0.98] transition-all duration-200"
                   style={{ background: '#D4860B', boxShadow: '0 4px 20px rgba(212,134,11,0.40)' }}
                 >
                   <Phone size={17} />
-                  Call Now — +1 831 298 8145
+                  Call Now — +1 831 253 0646
                 </a>
                 <Link
                   to="/try"
@@ -280,9 +280,9 @@ export default function Home() {
             No signup needed — just call us now.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
-            <a href="tel:+18312988145" className="inline-flex items-center gap-2 px-8 py-4 font-bold rounded-xl text-lg text-white transition-colors shadow-lg hover:opacity-90" style={{ background: '#D4860B' }}>
+            <a href="tel:+18312530646" className="inline-flex items-center gap-2 px-8 py-4 font-bold rounded-xl text-lg text-white transition-colors shadow-lg hover:opacity-90" style={{ background: '#D4860B' }}>
               <Phone size={22} />
-              +1 831 298 8145
+              +1 831 253 0646
             </a>
             <Link to="/try" className="inline-flex items-center gap-2 px-8 py-4 text-white font-bold rounded-xl text-lg hover:bg-white/10 transition-colors" style={{ border: '2px solid #D4860B' }}>
               Try on Web
