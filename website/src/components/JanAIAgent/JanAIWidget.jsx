@@ -344,7 +344,7 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
             </Canvas>
           </div>
           <div className="janai-online-dot"></div>
-          <div className="janai-avatar-badge">JanAI AI</div>
+          <div className="janai-avatar-badge">JanAI</div>
           <div className="janai-pulse"></div>
         </div>
       ) : (
@@ -354,7 +354,7 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
           <div className="janai-header">
             <div className="janai-header-title">
               <span className="janai-status-dot"></span>
-              <span className="font-hindi">JanAI</span> AI
+              <span className="font-hindi">JanAI</span>
             </div>
             <div className="janai-header-controls">
               <button onClick={clearHistory} title="Clear">🗑️</button>

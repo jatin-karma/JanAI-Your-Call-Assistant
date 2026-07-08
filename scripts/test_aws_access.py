@@ -73,6 +73,6 @@ except Exception as e:
 
 print("\n=== JanAI AWS Access Check ===")
 for svc, status in results.items():
-    icon = "✅" if status.startswith("OK") else "❌"
+    icon = "[OK]" if status.startswith("OK") else "[FAIL]"
     print(f"  {icon} {svc}: {status}")
 print()

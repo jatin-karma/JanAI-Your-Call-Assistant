@@ -3,7 +3,6 @@
 These files are **too large to be stored on GitHub** and need to be placed manually after cloning the project.
 
 ---
-
 ## Files in this folder
 
 | File | Size | Purpose |
@@ -12,7 +11,6 @@ These files are **too large to be stored on GitHub** and need to be placed manua
 | `model_female.glb` | ~2.2 MB | 3D avatar model used in the JanAI widget |
 
 ---
-
 ## Where to put them
 
 After cloning the repo, copy these files to the exact paths below:
@@ -32,26 +30,24 @@ JanAI/website/public/models/model_female.glb
 > **Note:** The `models/` folder inside `public/` may not exist yet. Create it if needed.
 
 ---
-
 ## Quick setup (copy-paste commands)
 
 **Windows (PowerShell)** — run from the project root:
 ```powershell
 # Make sure you're in the JanAI project folder first
-Copy-Item "large models\hero.mp4" "website\public\hero.mp4"
+Copy-Item "large-models\hero.mp4" "website\public\hero.mp4"
 New-Item -ItemType Directory -Path "website\public\models" -Force
-Copy-Item "large models\model_female.glb" "website\public\models\model_female.glb"
+Copy-Item "large-models\model_female.glb" "website\public\models\model_female.glb"
 ```
 
 **Mac / Linux (Terminal)** — run from the project root:
 ```bash
-cp "large models/hero.mp4" website/public/hero.mp4
+cp "large-models/hero.mp4" website/public/hero.mp4
 mkdir -p website/public/models
-cp "large models/model_female.glb" website/public/models/model_female.glb
+cp "large-models/model_female.glb" website/public/models/model_female.glb
 ```
 
 ---
-
 ## Why aren't these in Git?
 
 GitHub rejects files larger than ~50 MB and strongly discourages files above 10 MB.

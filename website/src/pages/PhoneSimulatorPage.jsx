@@ -382,7 +382,7 @@ export default function PhoneSimulatorPage() {
             <p className="text-white/40 text-xs truncate">
               {isOnCall
                 ? `${fmtElapsed(elapsed)}${activeLang ? ` · ${LANG_META[activeLang]?.sub}` : ''}`
-                : 'JanAI AI · Rural India'}
+                : 'JanAI · Rural India'}
             </p>
           </div>
           {isOnCall && phaseChip.label && (
