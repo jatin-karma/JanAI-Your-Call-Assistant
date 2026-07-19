@@ -104,7 +104,7 @@ if __name__ == "__main__":
         print(f"{'='*60}\n")
     except ImportError:
         public_url = None
-        print("\n⚠  pyngrok not installed — run: pip install pyngrok")
+        print("\n[WARN] pyngrok not installed - run: pip install pyngrok")
         print(f"  Starting without ngrok on http://localhost:{port}")
         print("  You can also run 'ngrok http 5000' separately.\n")
 
