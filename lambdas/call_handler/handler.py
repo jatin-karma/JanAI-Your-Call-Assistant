@@ -30,6 +30,9 @@ try:
 except ImportError:
     _JWT_AVAILABLE = False
 
+from services.tts_service import VoiceSynthesizer
+from services.language_service import LanguageManager
+
 # Optional OpenAI — falls back to Bedrock if not installed or key not set
 try:
     from openai import OpenAI as _OpenAI
@@ -41,9 +44,10 @@ logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # ── AWS clients ──────────────────────────────────────────────
-dynamodb  = boto3.resource("dynamodb", region_name=os.environ["AWS_REGION"])
-bedrock   = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])
-s3_client = boto3.client("s3", region_name=os.environ["AWS_REGION"])
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+dynamodb  = boto3.resource("dynamodb", region_name=AWS_REGION)
+bedrock   = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+s3_client = boto3.client("s3", region_name=AWS_REGION)
 
 calls_table     = dynamodb.Table(os.environ["DYNAMODB_CALLS_TABLE"])
 knowledge_table = dynamodb.Table(os.environ["DYNAMODB_KNOWLEDGE_TABLE"])
@@ -339,8 +343,11 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
         return None
     try:
         cfg = LANG_CONFIG.get(language, LANG_CONFIG["en"])
-        # Map internal persona names to actual Sarvam Bulbul v2 speaker IDs
-        _SARVAM_VOICE_MAP = {"hitesh": "abhilash", "arya": "arya", "vidya": "vidya"}
+        _SARVAM_VOICE_MAP = {
+            "hitesh": "abhilash",
+            "arya": "vidya" if language == "en" else "arya",
+            "vidya": "vidya",
+        }
         resolved_speaker = _SARVAM_VOICE_MAP.get(speaker, speaker if speaker in VOICE_OPTIONS else cfg["sarvam_speaker"])
         payload = {
             "inputs": [text],
@@ -1689,10 +1696,39 @@ def _clean_stt_transcript(text: str) -> str:
 
 
 def detect_language_from_speech(speech_text: str) -> str:
-    """Fast character-based language detection — no API call, instant."""
+    """Fast character-based and intent-based language detection — no API call, instant."""
     if not speech_text or not speech_text.strip():
         return "hi"
     text  = speech_text.strip()
+    t_lower = text.lower()
+
+    # 0. Check explicit language switch requests in any script (Devanagari or Roman)
+    english_switch_signals = [
+        "in english", "explain in english", "speak english", "talk in english",
+        "english me", "english mein", "अंग्रेजी", "इंग्लिश", "इंगलिश", "इन्ग्लिश",
+        "इंग्लिश में", "इन इंग्लिश", "एक्सप्लेन दिस इन इंग्लिश", "एक्सप्लेन"
+    ]
+    if any(sig in t_lower for sig in english_switch_signals):
+        return "en"
+
+    hindi_switch_signals = [
+        "in hindi", "speak hindi", "hindi me", "hindi mein", "हिंदी", "हिन्दी", "हिंदी में"
+    ]
+    if any(sig in t_lower for sig in hindi_switch_signals):
+        return "hi"
+
+    marathi_switch_signals = [
+        "in marathi", "speak marathi", "marathi me", "मराठी", "मराठीत", "मराठी मध्ये"
+    ]
+    if any(sig in t_lower for sig in marathi_switch_signals):
+        return "mr"
+
+    tamil_switch_signals = [
+        "in tamil", "speak tamil", "tamil me", "தமிழ்", "தமிழில்"
+    ]
+    if any(sig in t_lower for sig in tamil_switch_signals):
+        return "ta"
+
     total = max(len(text), 1)
     tamil = sum(1 for c in text if '\u0B80' <= c <= '\u0BFF')
     deva  = sum(1 for c in text if '\u0900' <= c <= '\u097F')
@@ -1706,7 +1742,7 @@ def detect_language_from_speech(speech_text: str) -> str:
             return "mr"
         return "hi"
     # ASCII / Hinglish — check common Hindi romanized words
-    t = text.lower()
+    t = t_lower
     if any(f" {w} " in f" {t} " or t.startswith(w + " ") or t.endswith(" " + w)
            for w in ["hai", "hain", "kya", "nahi", "aur", "mera", "mujhe", "karo",
                      "bolo", "batao", "haan", "acha", "theek", "matlab", "yaar",
@@ -3083,7 +3119,49 @@ def should_use_rag(speech_text: str) -> bool:
     return True  # Default: use RAG when LLM asked for it
 
 
+# ── Option B: Server Response Caching (Warm Lambda Memory) ──────────
+_RESPONSE_CACHE = {}
+_CACHE_TTL_HOURS = 24
+
+
+def _get_cache_key(query: str, language: str) -> str:
+    """Generate a clean normalized cache key from query text and language."""
+    clean_q = re.sub(r"[^\w\s]", "", query.lower().strip())
+    query_hash = hashlib.md5(clean_q.encode("utf-8")).hexdigest()[:12]
+    return f"{language}_{query_hash}"
+
+
+def _get_cached_response(query: str, language: str) -> str:
+    """Check if query answer is cached in warm Lambda memory."""
+    key = _get_cache_key(query, language)
+    cached = _RESPONSE_CACHE.get(key)
+    if cached:
+        if time.time() - cached.get("timestamp", 0) < (_CACHE_TTL_HOURS * 3600):
+            logger.info(f"CACHE HIT (Option B): Instant response for query: '{query[:40]}...'")
+            return cached.get("answer", "")
+        else:
+            del _RESPONSE_CACHE[key]
+    return ""
+
+
+def _set_cached_response(query: str, language: str, answer: str):
+    """Store generated LLM response in warm Lambda memory for future turns."""
+    if not query or not answer or len(query.strip()) < 4:
+        return
+    key = _get_cache_key(query, language)
+    _RESPONSE_CACHE[key] = {
+        "answer": answer,
+        "timestamp": time.time(),
+    }
+    logger.info(f"CACHE SAVED (Option B): Stored LLM response for query: '{query[:40]}...'")
+
+
 def rag_pipeline(query: str, language: str, call_sid: str = "", profile_context: str = "", system_prompt: str = "") -> str:
+    # Check Server Response Cache (Option B: skips LLM entirely for repeated queries)
+    cached_ans = _get_cached_response(query, language)
+    if cached_ans:
+        return cached_ans
+
     use_rag = should_use_rag(query)
     context = ""
     if use_rag:
@@ -3096,7 +3174,13 @@ def rag_pipeline(query: str, language: str, call_sid: str = "", profile_context:
         context = f"{context}\n\n--- Live Government Data (data.gov.in) ---\n{live_data}"
 
     history   = get_conversation_history(call_sid) if call_sid else []
-    return ask_llm(query, context, language, history, profile_context=profile_context, system_prompt=system_prompt)
+    answer    = ask_llm(query, context, language, history, profile_context=profile_context, system_prompt=system_prompt)
+
+    # Save to Server Response Cache
+    if answer:
+        _set_cached_response(query, language, answer)
+
+    return answer
 
 
 def get_conversation_history(call_sid: str) -> list:

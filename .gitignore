@@ -1,64 +1,52 @@
-# Secrets - NEVER commit these
+# ── Secrets & Environment Variables ─────────────────
 .env
-*.csv
+.env*
+.env.local
+.env.production
 *credentials*
+*.pem
+*.key
 
-# One-off experiment / test scripts with API keys (keep local)
-scripts/test_cartesia.py
-scripts/test_elevenlabs2.py
-
-# Python
+# ── Python Build Caches & Virtual Envs ─────────────
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .venv/
 venv/
 env/
+.pytest_cache/
 
-# Build artifacts
-build/
-dist/
-*.zip
-
-# Node
+# ── Node.js Dependencies & Build Artifacts ─────────
 node_modules/
+website/node_modules/
+website/dist/
 .vite/
+.vercel/
 
-# Large binary assets (share manually via the "large models" folder)
-# Track README.md but ignore actual binary files
+# ── Deployment Packages & Temporary Zip Archives ───
+build/
+*.zip
+deployment.zip
+janai-call-handler-deploy.zip
+lambdas/**/deployment.zip
+
+# ── Logs & Scratch Files ───────────────────────────
+*.log
+scratch/
+tmp/
+temp/
+
+# ── Large Media & Binary Assets ─────────────────────
+website/public/hero.mp4
+website/public/models/
 large models/*.mp4
 large models/*.glb
 large models/*.fbx
 large models/*.gltf
-website/public/hero.mp4
-website/public/models/
 
-# Large binary/media assets
-*.mp4
-*.glb
-*.gltf
-*.fbx
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+# ── OS & IDE Caches ────────────────────────────────
 .DS_Store
 Thumbs.db
-.vercel
-.env*.local
-.env*
-
-# Markdown docs — all ignored except README.md
-*.md
-*.MD
-!README.md
-
-# Presentation files
-*.pptx
-*.ppt
-*.pptm
-*.pps
-*.ppsx
-*.key
+.vscode/
+.idea/

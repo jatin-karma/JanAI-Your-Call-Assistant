@@ -27,6 +27,12 @@ function Deploy-Lambda {
     foreach ($extra in $ExtraSrc) {
         if (Test-Path $extra) { Copy-Item $extra "build\$FunctionName\" -Force }
     }
+    # Copy modular services folder if present
+    $servicesPath = Join-Path (Split-Path $HandlerSrc -Parent) "services"
+    if (Test-Path $servicesPath) {
+        Copy-Item $servicesPath "build\$FunctionName\" -Recurse -Force
+        Write-Host "  Copied services/ module package." -ForegroundColor Cyan
+    }
     
     # Copy pure-Python packages from venv (already proven to work on Lambda)
     $pkgsNeeded = @("requests", "certifi", "urllib3", "charset_normalizer", "idna",
@@ -48,11 +54,17 @@ function Deploy-Lambda {
     $sizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
     Write-Host "  Package size: $sizeMB MB" -ForegroundColor Green
     
-    # Upload
-    Write-Host "  Uploading to Lambda..." -ForegroundColor Yellow
+    # Upload via S3 bucket (reliable multipart chunking, no connection drops)
+    $s3Bucket = "janai-documents-2026"
+    $s3Key = "deployments/$FunctionName-deploy.zip"
+    Write-Host "  Uploading zip to S3 (s3://$s3Bucket/$s3Key)..." -ForegroundColor Yellow
+    aws s3 cp $zipPath "s3://$s3Bucket/$s3Key" --region $REGION
+    
+    Write-Host "  Updating Lambda code from S3..." -ForegroundColor Yellow
     $result = aws lambda update-function-code `
         --function-name $FunctionName `
-        --zip-file "fileb://$((Resolve-Path $zipPath).Path)" `
+        --s3-bucket $s3Bucket `
+        --s3-key $s3Key `
         --region $REGION `
         --query "LastModified" --output text
     
