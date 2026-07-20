@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom'
 const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || 'https://7hrrqf2fol.execute-api.us-east-1.amazonaws.com/prod'
 const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true' || import.meta.env.DEV
 
+import { OPTIMAL_AUDIO_CONSTRAINTS } from '../utils/audioConstraints'
+
 // ══════════════════════════════════════════════════════
 //  SECTION 1: Call Me Back
 // ══════════════════════════════════════════════════════
@@ -297,7 +299,7 @@ function VoiceChat() {
       setMaxDuration(allowed)
 
       const { Device } = await import('@twilio/voice-sdk')
-      const device = new Device(data.token, { logLevel: 1, codecPreferences: ['opus', 'pcmu'] })
+      const device = new Device(data.token, { logLevel: 1, codecPreferences: ['opus', 'pcmu'], audioConstraints: OPTIMAL_AUDIO_CONSTRAINTS })
       device.on('error', (e) => { setError(e.message || 'Device error'); setCallStatus('error'); cleanupCall() })
       deviceRef.current = device
 

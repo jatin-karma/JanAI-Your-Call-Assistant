@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import AvatarModel from './AvatarModel'
 import './styles.css'
 
+import { getCleanMicrophoneStream } from '../../utils/audioConstraints'
+
 // ── Error Boundary ────────────────────────────────────
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false } }
@@ -160,7 +162,7 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
 
   // ── STT: Sarvam Saarika via MediaRecorder ─────────
   const startSarvamSTT = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const stream = await getCleanMicrophoneStream()
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus' : 'audio/webm'
     const recorder = new MediaRecorder(stream, { mimeType })
