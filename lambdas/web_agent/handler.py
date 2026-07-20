@@ -308,6 +308,33 @@ def cors_preflight() -> dict:
 #  Route Handlers
 # ══════════════════════════════════════════════════════════════
 
+def detect_language_from_speech(speech_text: str) -> str:
+    """Fast character-based language detection — no API call, instant."""
+    if not speech_text or not speech_text.strip():
+        return "hi"
+    text  = speech_text.strip()
+    total = max(len(text), 1)
+    tamil = sum(1 for c in text if '\u0B80' <= c <= '\u0BFF')
+    deva  = sum(1 for c in text if '\u0900' <= c <= '\u097F')
+    if tamil / total > 0.15:
+        return "ta"
+    if deva / total > 0.15:
+        # Marathi-specific function words (Marathi uses same Devanagari as Hindi)
+        if any(w in text for w in ["आहे", "आहात", "आहेत", "नाही", "केला", "बोला", "सांगा",
+                                    "आम्ही", "तुम्ही", "आणि", "करा", "होय", "मला",
+                                    "तुम्हाला", "आपण", "करतो", "जाते", "आलो"]):
+            return "mr"
+        return "hi"
+    # ASCII / Hinglish — check common Hindi romanized words
+    t = text.lower()
+    if any(f" {w} " in f" {t} " or t.startswith(w + " ") or t.endswith(" " + w)
+           for w in ["hai", "hain", "kya", "nahi", "aur", "mera", "mujhe", "karo",
+                     "bolo", "batao", "haan", "acha", "theek", "matlab", "yaar",
+                     "bhai", "kaise", "kyun", "kaun", "kab", "abhi"]):
+        return "hi"
+    return "en"
+
+
 def handle_chat(event: dict) -> dict:
     """POST /vaani/chat — main chat endpoint for the web widget."""
     try:
@@ -320,9 +347,14 @@ def handle_chat(event: dict) -> dict:
         return err(400, "message is required")
 
     history = body.get("history", [])
-    language = body.get("language", "hi")  # default Hindi
+    input_lang = body.get("language", "hi")  # default Hindi
 
-    logger.info(f"Web chat: lang={language}, msg_len={len(message)}, history_len={len(history)}")
+    # Auto-detect language dynamically from user query (fixes web dynamic language)
+    language = detect_language_from_speech(message)
+    if not language:
+        language = input_lang
+
+    logger.info(f"Web chat: input_lang={input_lang} -> detected_lang={language}, msg_len={len(message)}, history_len={len(history)}")
 
     try:
         raw_answer = call_bedrock(message, history, language)

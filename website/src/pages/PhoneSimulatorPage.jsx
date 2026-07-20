@@ -72,6 +72,7 @@ export default function PhoneSimulatorPage() {
   const resolveSpeechRef  = useRef(null)
   const timerRef          = useRef(null)
   const msgBottomRef      = useRef(null)
+  const activePlaybackResolveRef = useRef(null)
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -113,8 +114,16 @@ export default function PhoneSimulatorPage() {
       if (!callActiveRef.current) { resolve(); return }
       const audio = new Audio(url)
       audioRef.current = audio
+      activePlaybackResolveRef.current = resolve
       let settled = false
-      const done = () => { if (!settled) { settled = true; audioRef.current = null; resolve() } }
+      const done = () => {
+        if (!settled) {
+          settled = true
+          audioRef.current = null
+          activePlaybackResolveRef.current = null
+          resolve()
+        }
+      }
       audio.onended = done
       audio.onerror = done   // graceful — audio may be blocked; call continues
       audio.play().catch(done)
@@ -127,10 +136,19 @@ export default function PhoneSimulatorPage() {
       if (!callActiveRef.current || !text) { resolve(); return }
       window.speechSynthesis.cancel()
       const u = new SpeechSynthesisUtterance(text)
+      activePlaybackResolveRef.current = resolve
       u.lang = LANG_META[langRef.current]?.sr ?? 'hi-IN'
       u.rate = 1.1
-      u.onend = resolve
-      u.onerror = resolve
+      let settled = false
+      const done = () => {
+        if (!settled) {
+          settled = true
+          activePlaybackResolveRef.current = null
+          resolve()
+        }
+      }
+      u.onend = done
+      u.onerror = done
       const voices = window.speechSynthesis.getVoices()
       const match = voices.find(v => v.lang.startsWith(u.lang.slice(0, 2)))
       if (match) u.voice = match
@@ -162,7 +180,7 @@ export default function PhoneSimulatorPage() {
   }, [])
 
   // ── Wait for browser SpeechRecognition ───────────────
-  const waitForSpeech = () => new Promise(resolve => {
+  const waitForSpeech = (onSpeechDetected) => new Promise(resolve => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       setStatusText('⚠ SpeechRecognition not supported — use Chrome')
@@ -184,6 +202,12 @@ export default function PhoneSimulatorPage() {
     r.onresult = (e) => {
       const all = [...e.results]
       setLiveText(all.map(r => r[0].transcript).join(''))
+      
+      // If we got interim speech, trigger the interruption callback
+      if (all.length > 0 && onSpeechDetected) {
+        onSpeechDetected()
+      }
+      
       const finals = all.filter(r => r.isFinal).map(r => r[0].transcript)
       if (finals.length) finalText = finals.join('')
     }
@@ -231,24 +255,91 @@ export default function PhoneSimulatorPage() {
         const xml = await postTwiML(node.text)
         await executeTwiML(xml)
         return
-
       // ── <Gather> ────────────────────────────────────
       } else if (node.tag === 'Gather') {
-        // First, play any nested Say/Play children (prompts inside Gather)
-        for (const child of node.children) {
-          if (!callActiveRef.current) return
-          await speakNode(child)
-          if (child.tag === 'Say' && !node.children.some(c => c.tag === 'Play')) {
-            // text was already spoken by speakNode; show in transcript handled inside speakNode
+        let interrupted = false
+        
+        const stopAudioPlayback = () => {
+          if (!interrupted) {
+            interrupted = true
+            console.info("Microphone input detected — interrupting playback!")
+            if (audioRef.current) {
+              try { audioRef.current.pause() } catch {}
+            }
+            try { window.speechSynthesis.cancel() } catch {}
+            if (activePlaybackResolveRef.current) {
+              activePlaybackResolveRef.current()
+              activePlaybackResolveRef.current = null
+            }
           }
         }
-        if (!callActiveRef.current) return
 
         const inputType = node.attrs.input ?? 'dtmf'
         const actionUrl = node.attrs.action ?? '/voice/gather'
 
-        // ── DTMF: language selection keypad ───────────
-        if (inputType.includes('dtmf')) {
+        // Start SpeechRecognition concurrently during playback to capture barge-in
+        let speechPromise = null
+        if (inputType.includes('speech')) {
+          speechPromise = waitForSpeech(stopAudioPlayback)
+        }
+
+        // First, play any nested Say/Play children (prompts inside Gather)
+        for (const child of node.children) {
+          if (!callActiveRef.current || interrupted) break
+          await speakNode(child)
+        }
+        if (!callActiveRef.current) return
+
+        // ── Combined Speech + DTMF: Whichever comes first ───────────
+        if (inputType.includes('speech') && inputType.includes('dtmf') && speechPromise) {
+          if (interrupted) {
+            setCallPhase('listening')
+            setStatusText('Interrupted! Speak now…')
+          } else {
+            setCallPhase('listening')
+            setStatusText('Speak or press 1–4 to select language')
+          }
+          
+          const result = await Promise.race([
+            speechPromise.then(text => ({ type: 'speech', value: text })),
+            waitForDTMF().then(digit => ({ type: 'dtmf', value: digit }))
+          ])
+
+          if (result.type === 'dtmf') {
+            // Abort speech recognition since DTMF won
+            if (resolveSpeechRef.current) {
+              resolveSpeechRef.current('')
+              resolveSpeechRef.current = null
+            }
+            const digit = result.value
+            if (!callActiveRef.current || digit === null) return
+
+            const newLang = { '1': 'hi', '2': 'mr', '3': 'ta', '4': 'en' }[digit] ?? 'hi'
+            langRef.current = newLang
+            setActiveLang(newLang)
+            addMsg('system', `Language selected: ${LANG_META[newLang].sub} (pressed ${digit})`)
+            setCallPhase('thinking')
+            setStatusText('Connecting…')
+            const xml = await postTwiML(actionUrl, { Digits: digit })
+            await executeTwiML(xml)
+            return
+          } else {
+            // Speech input won
+            const spokenText = result.value
+            if (!callActiveRef.current) return
+            if (spokenText) addMsg('user', spokenText)
+            setCallPhase('thinking')
+            setStatusText('JanAI is thinking…')
+            const xml = await postTwiML(actionUrl, {
+              SpeechResult: spokenText,
+              Confidence: spokenText ? '0.9' : '0',
+            })
+            await executeTwiML(xml)
+            return
+          }
+
+        // ── DTMF Only ──────────────────────────────────
+        } else if (inputType.includes('dtmf')) {
           setCallPhase('language-select')
           setStatusText('Press 1–4 to choose your language')
           const digit = await waitForDTMF()
@@ -264,11 +355,16 @@ export default function PhoneSimulatorPage() {
           await executeTwiML(xml)
           return
 
-        // ── Speech: mic input ──────────────────────────
-        } else {
-          setCallPhase('listening')
-          setStatusText('Listening… speak now')
-          const spokenText = await waitForSpeech()
+        // ── Speech Only ─────────────────────────────────
+        } else if (speechPromise) {
+          if (interrupted) {
+            setCallPhase('listening')
+            setStatusText('Interrupted! Speak now…')
+          } else {
+            setCallPhase('listening')
+            setStatusText('Listening… speak now')
+          }
+          const spokenText = await speechPromise
           if (!callActiveRef.current) return
 
           if (spokenText) addMsg('user', spokenText)

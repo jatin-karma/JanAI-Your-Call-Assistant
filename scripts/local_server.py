@@ -7,21 +7,29 @@
 import sys
 import os
 
-# Add Lambda handler to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lambdas", "call_handler"))
-
 from dotenv import load_dotenv
 load_dotenv()
 
+# Add Lambda handler to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lambdas", "call_handler"))
+import handler as call_handler_mod
+lambda_handler = call_handler_mod.lambda_handler
+sys.path.pop(0)
+
+# Add Web Agent handler to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lambdas", "web_agent"))
+import handler as web_agent_mod
+web_agent_handler = web_agent_mod.lambda_handler
+sys.path.pop(0)
+
 from flask import Flask, request
 from flask_cors import CORS
-from handler import lambda_handler
 
 app = Flask(__name__)
 CORS(app)  # Allow all origins for local dev
 
 
-def _proxy(path):
+def _proxy(path, handler_fn=lambda_handler):
     """Translate Flask request → Lambda event → Lambda response → Flask response."""
     if request.method == "POST":
         body = request.get_data(as_text=True)
@@ -40,7 +48,7 @@ def _proxy(path):
         },
     }
 
-    result = lambda_handler(event, None)
+    result = handler_fn(event, None)
 
     return (
         result.get("body", ""),
@@ -79,6 +87,19 @@ def profile_proxy(subpath=""):
 @app.route("/voice/token", methods=["GET", "OPTIONS"])
 def voice_token_proxy():
     return _proxy("voice/token")
+
+
+# ── Web Widget routes (Vaani web avatar) ────────────
+@app.route("/janai/chat", methods=["POST", "OPTIONS"])
+@app.route("/vaani/chat", methods=["POST", "OPTIONS"])
+def web_chat_proxy():
+    return _proxy("janai/chat", handler_fn=web_agent_handler)
+
+
+@app.route("/janai/stt", methods=["POST", "OPTIONS"])
+@app.route("/vaani/stt", methods=["POST", "OPTIONS"])
+def web_stt_proxy():
+    return _proxy("janai/stt", handler_fn=web_agent_handler)
 
 
 @app.route("/health", methods=["GET"])

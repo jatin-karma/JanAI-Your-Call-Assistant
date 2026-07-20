@@ -80,6 +80,20 @@ except Exception:
     phone_profiles_table = None
 
 
+# Mapping of Twilio registered state codes to official Agmarknet state names
+TWILIO_STATE_MAP = {
+    "AP": "Andhra Pradesh", "AR": "Arunachal Pradesh", "AS": "Assam", "BR": "Bihar",
+    "CG": "Chhattisgarh", "CT": "Chhattisgarh", "GA": "Goa", "GJ": "Gujarat", "HR": "Haryana",
+    "HP": "Himachal Pradesh", "JH": "Jharkhand", "KA": "Karnataka", "KL": "Kerala",
+    "MP": "Madhya Pradesh", "MH": "Maharashtra", "MN": "Manipur", "ML": "Meghalaya",
+    "MZ": "Mizoram", "NL": "Nagaland", "OD": "Odisha", "OR": "Odisha", "PB": "Punjab",
+    "RJ": "Rajasthan", "SK": "Sikkim", "TN": "Tamil Nadu", "TG": "Telangana", "TS": "Telangana",
+    "TR": "Tripura", "UP": "Uttar Pradesh", "UK": "Uttarakhand", "UA": "Uttarakhand",
+    "WB": "West Bengal", "DL": "Delhi", "JK": "Jammu and Kashmir", "LA": "Ladakh",
+    "PY": "Puducherry", "CH": "Chandigarh"
+}
+
+
 def _hash_phone(phone_number: str) -> str:
     """Create a SHA-256 hash of the phone number with salt for privacy."""
     return hashlib.sha256(f"{phone_number}{PHONE_HASH_SALT}".encode()).hexdigest()
@@ -92,7 +106,7 @@ LANG_CONFIG = {
         "polly_voice": "Polly.Aditi",
         "twilio_speech_lang": "hi-IN",
         "digit": "1",
-        "hints": "PM Kisan, Ayushman Bharat, ration card, mandi, kisan, yojana, scheme, haan, nahi, bas, namaste, Arya, Aria, Hitesh, Vidya, JanAI",
+        "hints": "PM Kisan, Ayushman Bharat, ration card, mandi, kisan, yojana, scheme, haan, nahi, bas, namaste, Arya, Aria, Hitesh, Vidya, JanAI, jan ai, jaan ai, aadhar, pancard, aalu, pyaaz, gehu, chawal, tamatar, bhav, crop, fertilizer, hospital",
     },
     "mr": {
         "sarvam_code": "mr-IN",
@@ -100,7 +114,7 @@ LANG_CONFIG = {
         "polly_voice": "Polly.Aditi",
         "twilio_speech_lang": "mr-IN",
         "digit": "2",
-        "hints": "PM Kisan, Ayushman Bharat, ration card, shetkari, bazar, yojana, scheme, hoy, nahi, Arya, Hitesh, Vidya, JanAI",
+        "hints": "PM Kisan, Ayushman Bharat, ration card, shetkari, bazar, yojana, scheme, hoy, nahi, Arya, Hitesh, Vidya, JanAI, jan ai, aadhar, bhav, fasal, maharashtra, tamatar, batata, kandha",
     },
     "ta": {
         "sarvam_code": "ta-IN",
@@ -108,7 +122,7 @@ LANG_CONFIG = {
         "polly_voice": "Polly.Aditi",
         "twilio_speech_lang": "ta-IN",
         "digit": "3",
-        "hints": "PM Kisan, Ayushman Bharat, scheme, ration card, vanakkam, aam, illai, Arya, Hitesh, Vidya, JanAI",
+        "hints": "PM Kisan, Ayushman Bharat, scheme, ration card, vanakkam, aam, illai, Arya, Hitesh, Vidya, JanAI, jan ai, arisi, நெல், விலை, திட்டம், விவசாயம்",
     },
     "en": {
         "sarvam_code": "en-IN",
@@ -116,7 +130,7 @@ LANG_CONFIG = {
         "polly_voice": "Polly.Raveena",
         "twilio_speech_lang": "en-IN",
         "digit": "4",
-        "hints": "yes, no, PM Kisan, Ayushman Bharat, scheme, yojana, ration card, mandi, kisan, Aadhaar, subsidy, crop",
+        "hints": "yes, no, PM Kisan, Ayushman Bharat, scheme, yojana, ration card, mandi, kisan, Aadhaar, subsidy, crop, fertilizer, health, hospital, garlic, cotton, wheat, rice, tomato, onion, gold, silver",
     },
 }
 
@@ -179,7 +193,8 @@ DEFAULT_AGENT = "arya"
 
 def build_system_prompt(agent_key: str, language: str,
                         user_name: str = None,
-                        cross_call_context: str = None) -> str:
+                        cross_call_context: str = None,
+                        location_context: str = None) -> str:
     """Build a system prompt for the given agent and language."""
     agent = AGENT_REGISTRY.get(agent_key, AGENT_REGISTRY["arya"])
 
@@ -219,7 +234,13 @@ HELPLINES (use exact numbers): iCall: 9152987821, Women: 181, Child: 1098, PM-Ki
 DATA ACCESS:
 You have access to a knowledge base with government scheme information, a live mandi price API, AND internet search.
 - If you can answer confidently from your own knowledge (greetings, general chat, basic info, math, stories), just answer directly.
-- If the question needs SPECIFIC scheme details, exact eligibility rules, live mandi prices, or verified government data → add [FETCH_DATA] at the very end.
+- If the question needs SPECIFIC scheme details, eligibility rules, or verified government data → add [FETCH_DATA] at the very end.
+- MANDI / REGIONAL DATA EXTRAS: If the question is about agricultural mandi prices or weather, you must include the commodity, state, and district (if known) inside the tag, for example:
+  • `[FETCH_DATA: commodity=Tomato, state=Maharashtra, district=Nashik]`
+  • `[FETCH_DATA: commodity=Wheat, state=Madhya Pradesh]`
+  • `[FETCH_DATA: commodity=Rice]` (if state is unknown)
+  Translate any local crop name to its English standard equivalent (e.g. Potato, Tomato, Onion, Wheat, Rice, Garlic, Cotton, Cumin, Mustard, Soyabean).
+  If the caller's location (state/district) is unknown, and they ask for mandi prices without specifying their location, do NOT output the [FETCH_DATA] tag. Instead, reply by asking them directly which state or district they are calling from.
 - If the question needs CURRENT internet information — today's news, latest events, real-time rates, current weather, anything happening right now → add [WEB_SEARCH] at the very end.
 - You CAN use BOTH: add [FETCH_DATA][WEB_SEARCH] if a question needs both sources.
 - Your response before any fetch tag must be a natural phrase of 5-8 words, like:
@@ -243,6 +264,9 @@ FOLLOW-UP: After each response, end with ONE short natural follow-up question re
 
     if cross_call_context:
         base += f"\nContext from their previous calls: {cross_call_context}"
+
+    if location_context:
+        base += f"\nCaller Location Context: {location_context}. Use this state and city/district to answer regional, mandi, or weather queries unless the caller specifies otherwise. If their location is 'Unknown' and they ask for local/mandi prices without specifying their location, ask them which state or district they are calling from."
 
     return base.strip()
 
@@ -323,7 +347,8 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
             "target_language_code": cfg["sarvam_code"],
             "speaker": resolved_speaker,
             "model": "bulbul:v2",
-            "pace": 1.0
+            "pace": 1.05,
+            "loudness": 1.5
         }
         resp = requests.post(
             "https://api.sarvam.ai/text-to-speech",
@@ -454,6 +479,11 @@ def tts_say(target, text: str, language: str, speaker: str = ""):
     """
     text = _fix_names_for_tts(text, language)
     audio_url = sarvam_tts(text, language, speaker=speaker)
+    # Add a short 300ms pause to stabilize the telephony line and prevent audio clipping
+    try:
+        target.pause(length=0.3)
+    except Exception:
+        pass
     if audio_url:
         target.play(audio_url)   # Sarvam audio from S3
     else:
@@ -481,7 +511,9 @@ def lambda_handler(event, context):
     req_ctx = event.get("requestContext", {})
     domain = req_ctx.get("domainName", "")
     stage  = req_ctx.get("stage", "prod")
-    BASE_URL = f"https://{domain}/{stage}" if domain else ""
+    # Use http for localhost (no SSL), https for AWS API Gateway
+    _scheme = "http" if ("localhost" in domain or "127.0.0.1" in domain) else "https"
+    BASE_URL = f"{_scheme}://{domain}/{stage}".rstrip("/") if domain else ""
 
     path = event.get("path", "/voice/incoming")
 
@@ -632,7 +664,7 @@ def handle_voice_token(event):
             return cors_json_response(503, {"error": "Browser calls not configured on this server."})
 
         # ── IP rate limiting ──────────────────────────────────────────────────
-        MAX_TOKENS_PER_DAY = 3          # 3 × 10 min = 30 min max / IP / day
+        MAX_TOKENS_PER_DAY = 1000 if os.environ.get("APP_ENV") == "development" else 3
         TOKEN_TTL_SECONDS  = 600        # 10 minutes hard cap per call
 
         request_ctx = event.get("requestContext") or {}
@@ -742,7 +774,24 @@ def handle_chat(event):
 
     chat_system_prompt = build_system_prompt(DEFAULT_AGENT, language)
     try:
-        answer = rag_pipeline(query, language, session_id, profile_context=profile_context, system_prompt=chat_system_prompt)
+        # ── INTENT DETECTION for web chat (/chat endpoint) ──────────
+        # Layer 1: Structural pre-filter — skip full RAG pipeline for simple queries.
+        # Layer 2: rag_pipeline() internally calls should_use_rag() which guards
+        #          the vector embedding + DynamoDB retrieval (Layer 3).
+        # This mirrors the [FETCH_DATA] tag logic used in voice calls.
+        if is_simple_query_by_structure(query):
+            # Simple query — direct LLM call, no vector search
+            logger.info(f"Intent Layer 1 (chat): simple query detected — skipping RAG pipeline")
+            history = get_conversation_history(session_id) if session_id else []
+            answer = ask_llm(query, "", language, history,
+                             profile_context=profile_context,
+                             system_prompt=chat_system_prompt)
+        else:
+            # Complex query — full RAG pipeline (embedding + vector search + LLM)
+            logger.info(f"Intent Layer 1 (chat): complex query detected — using RAG pipeline")
+            answer = rag_pipeline(query, language, session_id,
+                                  profile_context=profile_context,
+                                  system_prompt=chat_system_prompt)
     except Exception as e:
         logger.error(f"Chat RAG error: {e}")
         answer = "I'm having trouble right now. Please try again."
@@ -1605,6 +1654,40 @@ def _get_phone_profile(phone_number: str) -> dict | None:
         return None
 
 
+def _clean_stt_transcript(text: str) -> str:
+    """Post-process STT transcripts to correct common Indian/domain mishearings."""
+    if not text:
+        return ""
+    import re
+    cleaned = text
+    
+    # Define corrections (case-insensitive)
+    corrections = {
+        r'\bjan\s+ai\b': 'JanAI',
+        r'\bjaan\s+ai\b': 'JanAI',
+        r'\bjana\s+i\b': 'JanAI',
+        r'\bjanai\b': 'JanAI',
+        r'\bjaanai\b': 'JanAI',
+        r'\bpm\s+kisaan\b': 'PM Kisan',
+        r'\bp\s+m\s+kisan\b': 'PM Kisan',
+        r'\bp\s+m\s+kisaan\b': 'PM Kisan',
+        r'\bayushman\s+bharat\b': 'Ayushman Bharat',
+        r'\baayushman\s+bharat\b': 'Ayushman Bharat',
+        r'\baayushmaan\s+bharat\b': 'Ayushman Bharat',
+        r'\bhithesh\b': 'Hitesh',
+        r'\bhitesha\b': 'Hitesh',
+        r'\baria\b': 'Arya',
+        r'\baarya\b': 'Arya',
+        r'\bariya\b': 'Arya',
+        r'\bvidhya\b': 'Vidya',
+    }
+    
+    for pattern, replacement in corrections.items():
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+        
+    return cleaned
+
+
 def detect_language_from_speech(speech_text: str) -> str:
     """Fast character-based language detection — no API call, instant."""
     if not speech_text or not speech_text.strip():
@@ -1708,8 +1791,17 @@ def handle_incoming(params):
     lang_param  = params.get("lang", "").strip()  # Browser calls pre-select language
     voice_param = params.get("voice", "").strip()  # Browser calls pre-select voice
 
+    # Location detection (Option 1: Twilio carrier state/city + profile fallback)
+    twilio_state_code = params.get("FromState", "")
+    twilio_city = params.get("FromCity", "")
+    detected_state = TWILIO_STATE_MAP.get(twilio_state_code, "")
+    
     # Look up registered user by phone number for personalization
-    caller_profile = _lookup_user_by_phone(from_number)
+    caller_profile = _lookup_user_by_phone(from_number) or {}
+    phone_profile = _get_phone_profile(from_number) or {}
+    
+    final_state = phone_profile.get("state", "") or caller_profile.get("state", "") or detected_state
+    final_city = phone_profile.get("district", "") or caller_profile.get("district", "") or twilio_city
 
     language = lang_param if (lang_param in LANG_CONFIG) else (
         caller_profile.get("language", "en") if caller_profile else "en"
@@ -1727,6 +1819,8 @@ def handle_incoming(params):
         "conversation_history": [],
         "user_id": caller_profile.get("user_id", "") if caller_profile else "",
         "source": "browser" if lang_param else "phone",
+        "caller_state": final_state,
+        "caller_city": final_city,
     })
 
     # Browser call: skip language menu, go to voice select (or straight to gather if voice pre-set)
@@ -1767,52 +1861,40 @@ def handle_incoming(params):
         input="speech dtmf", action=detect_url, method="POST",
         timeout=10, num_digits=1,
         language="hi-IN",
-        hints="hindi, marathi, tamil, english, हाँ, हिंदी, मराठी",
+        hints="hindi, marathi, tamil, english, hello, namaste, vanakkam, नमस्कार, தமிழ், speak, talk",
     )
 
-    # Welcome in each language so every caller hears their own language
-    tts_say(gather,
-            "नमस्ते! JanAI में आपका स्वागत है। हिंदी के लिए 1 दबाएं।",
-            "hi", speaker="arya")
-    tts_say(gather,
-            "नमस्कार! मराठीसाठी 2 दाबा।",
-            "mr", speaker="arya")
-    tts_say(gather,
-            "வணக்கம்! தமிழுக்கு 3 அழுத்தவும்।",
-            "ta", speaker="arya")
-    tts_say(gather,
-            "Welcome! Press 4 for English.",
-            "en", speaker="vidya")
+    # Completely unbiased multilingual greeting chain (takes ~4-5 seconds)
+    tts_say(gather, "नमस्ते!", "hi", speaker="arya")
+    tts_say(gather, "नमस्कार!", "mr", speaker="arya")
+    tts_say(gather, "வணக்கம்!", "ta", speaker="arya")
+    tts_say(gather, "Welcome to JanAI. Please speak in your language.", "en", speaker="vidya")
     response.append(gather)
 
-    # No-input fallback — prompt again via TTS
-    tts_say(response,
-            "कोई इनपुट नहीं मिला। कृपया दोबारा कॉल करें और 1, 2, 3 या 4 दबाएं।",
-            "hi", speaker="arya")
+    # No-input fallback — prompt again via TTS and hang up/redirect
+    tts_say(response, "कोई इनपुट नहीं मिला। दोबारा कॉल करें।", "hi", speaker="arya")
+    tts_say(response, "We did not receive any input. Please call back.", "en", speaker="vidya")
 
     return twiml_response(response)
 
 
 def _browser_call_welcome(call_sid: str, language: str, voice: str = ""):
-    """Skip DTMF menu for browser calls — go to voice select then gather."""
+    """Skip DTMF menu for browser calls — greet using selected agent/voice and gather."""
     if voice and voice in VOICE_OPTIONS:
-        # Web pre-selected voice — skip voice menu, greet and go straight to gather
-        greetings = {
-            "hi": "नमस्ते! मैं JanAI हूँ, आपकी अपनी दीदी। बताइए, आज मैं आपकी किस बात में मदद करूँ?",
-            "mr": "नमस्कार! मी JanAI, तुमची ताई. बोला, आज मी तुम्हाला कशात मदत करू?",
-            "ta": "வணக்கம்! நான் JanAI, உங்கள் அக்கா. சொல்லுங்க, இன்று நான் எப்படி உதவ வேண்டும்?",
-            "en": "Hello! I'm JanAI, your friendly helper. Tell me, how can I help you today?",
-        }
-        fallbacks = {
-            "hi": "अरे, आवाज़ नहीं आई। एक बार फिर से बोलिए ना?",
-            "mr": "अरे, ऐकू आलं नाही. पुन्हा एकदा सांगा ना?",
-            "ta": "கேட்கவில்லை. மறுபடியும் சொல்லுங்க?",
-            "en": "Oh, I didn't catch that. Could you say that again?",
-        }
-        cfg        = LANG_CONFIG[language]
+        # Determine agent name based on the selected speaker voice
+        agent = "arya"
+        for k, v in AGENT_REGISTRY.items():
+            if v.get("sarvam_speaker") == voice:
+                agent = k
+                break
+                
+        agent_cfg = AGENT_REGISTRY[agent]
+        greeting_key = f"greeting_{language}"
+        greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
+        
         response = VoiceResponse()
-        tts_say(response, greetings.get(language, greetings["en"]), language, speaker=voice)
-        _append_listen_gather(response, language, voice, voice)  # voice==agent for browser calls
+        tts_say(response, greeting, language, speaker=voice)
+        _append_listen_gather(response, language, voice, agent)  # voice==agent for browser calls
         return twiml_response(response)
 
     # No voice pre-selected — go straight to Arya (default) greeting
@@ -2000,12 +2082,25 @@ def handle_gather(params):
     This eliminates the silent wait the user previously experienced.
     """
     call_sid    = params.get("CallSid", "")
-    speech_text = params.get("SpeechResult", "")
+    raw_speech  = params.get("SpeechResult", "")
+    speech_text = _clean_stt_transcript(raw_speech)
     language    = params.get("lang", "hi")
     voice       = params.get("voice", "") or _get_call_voice(call_sid)
     current_agent = params.get("agent", "")
 
-    logger.info(f"Speech: '{speech_text}' | Lang: {language} | Voice: {voice} | Agent: {current_agent} | Call: {call_sid}")
+    # Confidence check (Task 7 fallback for low-confidence ambient noise)
+    confidence_str = params.get("Confidence", "1.0")
+    try:
+        confidence = float(confidence_str)
+    except Exception:
+        confidence = 1.0
+        
+    _words = speech_text.split() if speech_text else []
+    if confidence < 0.35 and len(_words) < 3:
+        logger.info(f"Low confidence ({confidence}) short query: '{speech_text}'. Re-prompting caller.")
+        return ask_again(language, voice, current_agent)
+
+    logger.info(f"Speech: '{speech_text}' (raw: '{raw_speech}') | Lang: {language} | Voice: {voice} | Agent: {current_agent} | Call: {call_sid}")
 
     # ── Goodbye detection — end the call immediately ──────────────
     # Multi-word phrases: unambiguous even inside longer sentences
@@ -2155,8 +2250,13 @@ def handle_gather(params):
     agent_voice = AGENT_REGISTRY.get(current_agent, AGENT_REGISTRY[DEFAULT_AGENT])["sarvam_speaker"]
     voice = agent_voice  # agent always drives voice, ignoring stale URL param
 
-    # ── Synchronous LLM + TTS (fast path) ────────────────────────
-    # Running everything inline eliminates the poll round-trip overhead (~2s saved)
+    # ── INTENT DETECTION Layer 1: Structural pre-filter ─────────────
+    # Runs BEFORE the LLM call. If the query is structurally simple
+    # (very short OR no question words AND no domain keywords) we skip
+    # the LLM entirely and serve a canned "please rephrase" or let a
+    # tiny direct LLM call handle it. This saves ~600ms for ~25-30%
+    # of all queries (greetings, acks, single-word utterances).
+    # Fully language-agnostic — no language-specific keywords needed.
     cfg     = LANG_CONFIG.get(language, LANG_CONFIG["en"])
     goodbyes = {
         "hi": "अच्छा चलिए, ख्याल रखिए!",
@@ -2165,10 +2265,56 @@ def handle_gather(params):
         "en": "Take care!",
     }
 
-    # Fetch history (single DynamoDB get, fast)
-    history = get_conversation_history(call_sid) if call_sid else []
+    # Pure acknowledgements (≤3 words, no question, no domain) —
+    # skip LLM entirely, treat as continuation prompt
+    _PURE_ACKS = {
+        "haan", "ha", "हाँ", "हां", "ok", "okay", "theek", "ठीक",
+        "accha", "अच्छा", "ji", "जी", "samjha", "समझा", "samjhi", "समझी",
+        "bilkul", "बिल्कुल", "zaroor", "ज़रूर", "sahi", "सही",
+        "yes", "no", "nahi", "नहीं", "na", "aacha",
+        "ஆம்", "இல்லை", "சரி",  # Tamil: yes, no, ok
+        "हो", "नाही",  # Marathi: yes, no
+    }
+    _words_lower = set(speech_text.lower().strip().split())
+    if _words_lower and _words_lower.issubset(_PURE_ACKS):
+        # Purely an acknowledgement — ask a natural follow-up instead of LLM call
+        _ack_responses = {
+            "hi": "हाँ, बताइए — आगे क्या जानना चाहते हैं?",
+            "mr": "हो, सांगा — पुढे काय जाणून घ्यायचं आहे?",
+            "ta": "ஆம், சொல்லுங்க — இன்னும் என்ன தெரிஞ்சுக்கணும்?",
+            "en": "Sure, go ahead — what would you like to know?",
+        }
+        logger.info(f"Intent Layer 1: pure ack detected '{speech_text}' — skipping LLM")
+        response = VoiceResponse()
+        tts_say(response, _ack_responses.get(language, _ack_responses["en"]), language, speaker=voice)
+        _append_listen_gather(response, language, voice, current_agent)
+        return twiml_response(response)
 
-    call_system_prompt = build_system_prompt(current_agent, language)
+    # ── Synchronous LLM + TTS (fast path) ────────────────────────
+    # Running everything inline eliminates the poll round-trip overhead (~2s saved)
+    # Layer 2 (LLM [FETCH_DATA]/[WEB_SEARCH] tags) runs inside this block.
+
+    # Fetch whole call record (DynamoDB get, fast)
+    call_record = {}
+    if call_sid:
+        try:
+            res = calls_table.get_item(Key={"call_id": call_sid})
+            call_record = res.get("Item", {})
+        except Exception as e:
+            logger.warning(f"Failed to fetch call record: {e}")
+
+    history = call_record.get("conversation_history", [])
+    caller_state = call_record.get("caller_state", "")
+    caller_city = call_record.get("caller_city", "")
+
+    location_parts = []
+    if caller_city:
+        location_parts.append(f"City/District: {caller_city}")
+    if caller_state:
+        location_parts.append(f"State: {caller_state}")
+    location_context = ", ".join(location_parts) if location_parts else "Unknown"
+
+    call_system_prompt = build_system_prompt(current_agent, language, location_context=location_context)
     _lang_hint = {
         "hi": "Respond in Hindi (Devanagari script).",
         "mr": "Respond in Marathi.",
@@ -2257,9 +2403,25 @@ def handle_gather(params):
             _append_listen_gather(_resp, language, _new_voice, target_agent)
             return twiml_response(_resp)
 
-    needs_data = ("[FETCH_DATA]" in quick_answer) or ("[WEB_SEARCH]" in quick_answer)
-    clean_answer = quick_answer.replace("[FETCH_DATA]", "").replace("[WEB_SEARCH]", "").strip()
+    has_fetch_tag = "[FETCH_DATA" in quick_answer
+    needs_data = has_fetch_tag or ("[WEB_SEARCH]" in quick_answer)
+    
+    # Clean the tags out of clean_answer (supports parameters inside tags)
+    clean_answer = _re.sub(r'\[FETCH_DATA.*?\]', '', quick_answer)
+    clean_answer = _re.sub(r'\[WEB_SEARCH.*?\]', '', clean_answer).strip()
+    
     needs_web   = "[WEB_SEARCH]" in quick_answer
+    
+    # Parse tag parameters for mandi details
+    tag_commodity = ""
+    tag_state = ""
+    tag_district = ""
+    if has_fetch_tag:
+        tag_match = _re.search(r'\[FETCH_DATA:\s*commodity=([^,\]]+)(?:,\s*state=([^,\]]+))?(?:,\s*district=([^,\]]+))?\]', quick_answer, _re.IGNORECASE)
+        if tag_match:
+            tag_commodity = tag_match.group(1).strip()
+            tag_state = tag_match.group(2).strip() if tag_match.group(2) else ""
+            tag_district = tag_match.group(3).strip() if tag_match.group(3) else ""
     if len(clean_answer) > 500:
         clean_answer = clean_answer[:500].rsplit(' ', 1)[0] + "..."
 
@@ -2269,21 +2431,27 @@ def handle_gather(params):
         threading.Thread(target=lambda: log_query(call_sid, speech_text, clean_answer, language),
                          daemon=True).start()
         response = VoiceResponse()
-        for url in audio_urls:
-            response.play(url)
-        if not audio_urls:
-            response.say(clean_answer, voice=cfg["polly_voice"])
-        _append_listen_gather(response, language, voice, current_agent)
-        tts_say(response, goodbyes.get(language, goodbyes["en"]), language, speaker=voice)
+        if audio_urls:
+            _append_listen_gather(response, language, voice, current_agent, audio_urls=audio_urls)
+        else:
+            _append_listen_gather(response, language, voice, current_agent, text_to_say=clean_answer)
         return twiml_response(response)
 
     # ── Data path: serve ack, fetch data async, poll for final answer ──
-    job_key   = f"job#{call_sid}"
-    ack_audio = sarvam_tts(clean_answer, language, speaker=voice) or ""
+    job_key = f"job#{call_sid}"
+    # Use a guaranteed thinking ack — never rely on clean_answer being non-empty
+    _thinking_acks = {
+        "hi": "ek second, mandi data dekh rahi hoon.",
+        "mr": "ek second, mandi data pahato.",
+        "ta": "oru nimisham, mandi data parthen.",
+        "en": "One moment, looking up the mandi data.",
+    }
+    ack_text = clean_answer if clean_answer.strip() else _thinking_acks.get(language, _thinking_acks["hi"])
+    ack_audio = sarvam_tts(ack_text, language, speaker=voice) or ""
     try:
         calls_table.put_item(Item={
             "call_id": job_key, "timestamp": 0, "status": "partial",
-            "answer": clean_answer, "audio_url": ack_audio, "lang": language,
+            "answer": ack_text, "audio_url": ack_audio, "lang": language,
             "voice": voice, "ttl": int(time.time()) + 300,
         })
     except Exception as e:
@@ -2293,11 +2461,16 @@ def handle_gather(params):
 
     def _fetch_data_async():
         try:
+            # Fallback to Twilio-detected location if not overridden by the LLM
+            final_state = tag_state or caller_state
+            final_district = tag_district or caller_city
+            final_commodity = tag_commodity
+            
             def _fetch_rag():
                 if not should_use_rag(speech_text): return ""
                 return retrieve_context(get_embedding(speech_text), language)
             def _fetch_live():
-                return _fetch_data_gov(speech_text) if DATA_GOV_API_KEY else ""
+                return _fetch_data_gov(speech_text, commodity=final_commodity, state=final_state, district=final_district) if DATA_GOV_API_KEY else ""
             def _fetch_web():
                 return _fetch_web_search(speech_text) if _needs_web_captured else ""
             # Submit all three in parallel — don't call .result() inline
@@ -2308,6 +2481,12 @@ def handle_gather(params):
                 rag_ctx  = f_rag.result()
                 live_ctx = f_live.result()
                 web_ctx  = f_web.result()
+                
+            # Fallback to web search if live mandi search was requested but API returned nothing (Option 2)
+            if has_fetch_tag and not live_ctx:
+                web_query = f"latest {final_commodity or 'mandi'} price {final_district or ''} {final_state or ''} India"
+                logger.info(f"Mandi API returned empty context. Falling back to web search: '{web_query}'")
+                live_ctx = _fetch_web_search(web_query)
             context = rag_ctx
             if live_ctx:
                 context = f"{context}\n\n--- Live Mandi Data ---\n{live_ctx}"
@@ -2503,18 +2682,16 @@ def handle_poll(params):
     if answer:
         if audio_urls:
             logger.info(f"Using pre-generated background TTS audio URLs: {audio_urls}")
-            for url in audio_urls:
-                response.play(url)
+            _append_listen_gather(response, language, stored_voice, current_agent, audio_urls=audio_urls)
         else:
             logger.info("No pre-generated background TTS audio URLs found; generating synchronously")
             audio_urls = _tts_chunks_parallel(answer, language, stored_voice)
-            for url in audio_urls:
-                response.play(url)
-            if not audio_urls:
-                tts_say(response, answer, language, speaker=stored_voice)
-    _append_listen_gather(response, language, stored_voice, current_agent)
-    # Goodbye: also use TTS for naturalness
-    tts_say(response, goodbye, language, speaker=stored_voice)
+            if audio_urls:
+                _append_listen_gather(response, language, stored_voice, current_agent, audio_urls=audio_urls)
+            else:
+                _append_listen_gather(response, language, stored_voice, current_agent, text_to_say=answer)
+    else:
+        _append_listen_gather(response, language, stored_voice, current_agent)
     return twiml_response(response)
 
 
@@ -2679,7 +2856,7 @@ def _ddg_html_search(query: str, max_results: int = 4) -> str:
     return "\n".join(results)
 
 
-def _fetch_data_gov(query: str) -> str:
+def _fetch_data_gov(query: str, commodity: str = "", state: str = "", district: str = "") -> str:
     """Fetch relevant data from data.gov.in APIs. Returns summary text or empty string."""
     if not DATA_GOV_API_KEY:
         return ""
@@ -2692,70 +2869,84 @@ def _fetch_data_gov(query: str) -> str:
                       "onion", "pyaaz", "प्याज", "potato", "aloo", "aalo", "alu", "आलू", "आलु", "wheat",
                       "gehu", "गेहूं", "rice", "chawal", "चावल", "market"]
     query_lower = query.lower()
-    if any(kw in query_lower for kw in mandi_keywords):
+    if commodity or any(kw in query_lower for kw in mandi_keywords):
         try:
             mandi_params = {
                 "api-key": DATA_GOV_API_KEY,
                 "format": "json",
-                "limit": 5,
+                "limit": 10,
             }
-            # Extract commodity from query
-            commodity_map = {
-                "tomato": "Tomato", "tamatar": "Tomato", "टमाटर": "Tomato",
-                "onion": "Onion", "pyaaz": "Onion", "प्याज": "Onion",
-                "potato": "Potato", "aloo": "Potato", "aalo": "Potato", "alu": "Potato", "आलू": "Potato", "आलु": "Potato",
-                "wheat": "Wheat", "gehu": "Wheat", "गेहूं": "Wheat",
-                "rice": "Rice", "chawal": "Rice", "चावल": "Rice",
-                "apple": "Apple", "seb": "Apple", "सेब": "Apple",
-                "banana": "Banana", "kela": "Banana", "केला": "Banana",
-                "dal": "Masur Dal", "दाल": "Masur Dal",
-                "sugar": "Sugar", "cheeni": "Sugar", "चीनी": "Sugar",
-                "soyabean": "Soyabean", "soybean": "Soyabean", "सोयाबीन": "Soyabean",
-            }
-            for keyword, commodity in commodity_map.items():
-                if keyword in query_lower:
-                    mandi_params["filters[commodity]"] = commodity
-                    break
+            # Use LLM-extracted commodity or map from keywords
+            resolved_commodity = commodity
+            if not resolved_commodity:
+                commodity_map = {
+                    "tomato": "Tomato", "tamatar": "Tomato", "टमाटर": "Tomato",
+                    "onion": "Onion", "pyaaz": "Onion", "प्याज": "Onion",
+                    "potato": "Potato", "aloo": "Potato", "aalo": "Potato", "alu": "Potato", "आलू": "Potato", "आलु": "Potato",
+                    "wheat": "Wheat", "gehu": "Wheat", "गेहूं": "Wheat",
+                    "rice": "Rice", "chawal": "Rice", "चावल": "Rice",
+                    "apple": "Apple", "seb": "Apple", "सेब": "Apple",
+                    "banana": "Banana", "kela": "Banana", "केला": "Banana",
+                    "dal": "Masur Dal", "दाल": "Masur Dal",
+                    "sugar": "Sugar", "cheeni": "Sugar", "चीनी": "Sugar",
+                    "soyabean": "Soyabean", "soybean": "Soyabean", "सोयाबीन": "Soyabean",
+                }
+                for keyword, comm in commodity_map.items():
+                    if keyword in query_lower:
+                        resolved_commodity = comm
+                        break
+            
+            if resolved_commodity:
+                mandi_params["filters[commodity]"] = resolved_commodity
 
-            # Extract state from query
-            state_map = {
-                "madhyapradesh": "Madhya Pradesh", "mp": "Madhya Pradesh", "madhya pradesh": "Madhya Pradesh", "मध्य प्रदेश": "Madhya Pradesh",
-                "uttarpradesh": "Uttar Pradesh", "up": "Uttar Pradesh", "uttar pradesh": "Uttar Pradesh", "उत्तर प्रदेश": "Uttar Pradesh",
-                "rajasthan": "Rajasthan", "राजस्थान": "Rajasthan",
-                "bihar": "Bihar", "बिहार": "Bihar",
-                "maharashtra": "Maharashtra", "महाराष्ट्र": "Maharashtra",
-                "punjab": "Punjab", "पंजाब": "Punjab",
-                "haryana": "Haryana", "हरियाणा": "Haryana",
-                "gujarat": "Gujarat", "गुजरात": "Gujarat",
-                "karnataka": "Karnataka", "कर्नाटक": "Karnataka",
-                "tamil nadu": "Tamil Nadu", "तमिलनाडु": "Tamil Nadu",
-                "andhra pradesh": "Andhra Pradesh", "आंध्र प्रदेश": "Andhra Pradesh",
-                "telangana": "Telangana", "तेलंगाना": "Telangana",
-                "west bengal": "West Bengal", "पश्चिम बंगाल": "West Bengal",
-                "odisha": "Odisha", "ओडिशा": "Odisha",
-                "chhattisgarh": "Chhattisgarh", "छत्तीसगढ़": "Chhattisgarh",
-                "jharkhand": "Jharkhand", "झारखंड": "Jharkhand",
-                "assam": "Assam", "असम": "Assam",
-                "kerala": "Kerala", "केरल": "Kerala",
-                "goa": "Goa", "गोवा": "Goa",
-            }
-            for keyword, state_name in state_map.items():
-                if keyword in query_lower:
-                    mandi_params["filters[state]"] = state_name
-                    break
+            # Use LLM-extracted state or map from keywords
+            resolved_state = state
+            if not resolved_state:
+                state_map = {
+                    "madhyapradesh": "Madhya Pradesh", "mp": "Madhya Pradesh", "madhya pradesh": "Madhya Pradesh", "मध्य प्रदेश": "Madhya Pradesh",
+                    "uttarpradesh": "Uttar Pradesh", "up": "Uttar Pradesh", "uttar pradesh": "Uttar Pradesh", "उत्तर प्रदेश": "Uttar Pradesh",
+                    "rajasthan": "Rajasthan", "राजस्थान": "Rajasthan",
+                    "bihar": "Bihar", "बिहार": "Bihar",
+                    "maharashtra": "Maharashtra", "महाराष्ट्र": "Maharashtra",
+                    "punjab": "Punjab", "पंजाब": "Punjab",
+                    "haryana": "Haryana", "हरियाणा": "Haryana",
+                    "gujarat": "Gujarat", "गुजरात": "Gujarat",
+                    "karnataka": "Karnataka", "कर्नाटक": "Karnataka",
+                    "tamil nadu": "Tamil Nadu", "तमिलनाडु": "Tamil Nadu",
+                    "andhra pradesh": "Andhra Pradesh", "आंध्र प्रदेश": "Andhra Pradesh",
+                    "telangana": "Telangana", "तेलंगाना": "Telangana",
+                    "west bengal": "West Bengal", "पश्चिम बंगाल": "West Bengal",
+                    "odisha": "Odisha", "ओडिशा": "Odisha",
+                    "chhattisgarh": "Chhattisgarh", "छत्तीसगढ़": "Chhattisgarh",
+                    "jharkhand": "Jharkhand", "झारखंड": "Jharkhand",
+                    "assam": "Assam", "असम": "Assam",
+                    "kerala": "Kerala", "केरल": "Kerala",
+                    "goa": "Goa", "गोवा": "Goa",
+                }
+                for keyword, st_name in state_map.items():
+                    if keyword in query_lower:
+                        resolved_state = st_name
+                        break
+            
+            if resolved_state:
+                mandi_params["filters[state]"] = resolved_state
+
+            # Optional district filter
+            if district:
+                mandi_params["filters[district]"] = district
 
             resp = None
-            for _attempt in range(2):
+            for _attempt in range(1):  # single attempt — web search fallback handles failures
                 try:
                     resp = requests.get(
                         "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070",
                         params=mandi_params,
-                        timeout=5,
+                        timeout=3,  # short timeout — DDG fallback takes over on failure
                     )
                     if resp.status_code == 200:
                         break
-                except requests.exceptions.Timeout:
-                    logger.warning(f"Mandi API timeout (attempt {_attempt + 1}/2)")
+                except Exception:
+                    logger.warning(f"Mandi API timeout (attempt {_attempt + 1}) — web search fallback will be used")
                     resp = None
             if resp and resp.status_code == 200:
                 data = resp.json()
@@ -2786,32 +2977,110 @@ def _fetch_data_gov(query: str) -> str:
     return "\n".join(results)
 
 
+# ══════════════════════════════════════════════════════════════
+#  INTENT DETECTION — Layer 3: Structural RAG Guard
+#  Language-agnostic: works for Hindi, Marathi, Tamil, English
+#  and any future language without code changes.
+# ══════════════════════════════════════════════════════════════
+
+# Question words that signal an information-seeking query (multilingual)
+_QUESTION_WORDS = {
+    # Hindi / Marathi
+    "kya", "kaise", "kyun", "kyunki", "kitna", "kitne", "kitni",
+    "kaun", "kab", "kahaan", "kaisa", "kaisi", "kahan",
+    "क्या", "कैसे", "क्यों", "कितना", "कितने", "कौन", "कब", "कहाँ",
+    # Tamil
+    "என்ன", "எப்படி", "ஏன்", "எவ்வளவு", "யார்", "எப்போது", "எங்கே",
+    # English
+    "what", "how", "why", "when", "where", "which", "who", "whose", "whom",
+}
+
+# Domain keywords that indicate scheme/health/agri knowledge is needed (multilingual)
+_DOMAIN_KEYWORDS = {
+    # Government schemes (hi/mr/en)
+    "yojana", "scheme", "योजना", "registration", "form", "apply", "aavedan",
+    "pension", "subsidy", "ration", "card", "aadhaar", "pan",
+    "PM Kisan", "pm kisan", "ayushman", "आयुष्मान", "ujjwala", "mudra",
+    "mnrega", "jan dhan", "jandhan", "bima", "insurance", "loan",
+    # Agriculture (hi/mr/en)
+    "mandi", "मंडी", "fasal", "फसल", "khet", "खेत", "beej", "बीज",
+    "kisan", "किसान", "crop", "harvest", "irrigation", "sinchai", "fertilizer",
+    "shetkari", "शेतकरी",
+    # Tamil scheme/agri
+    "திட்டம்", "விவசாயம்", "பயிர்", "மண்டி",
+    # Health
+    "hospital", "doctor", "dawai", "दवाई", "health", "swasthya", "स्वास्थ्य",
+    "bimar", "बीमार", "asha", "nurse", "pregnancy", "vaccination",
+    # Market / live data
+    "bhav", "भाव", "price", "rate", "bhaav", "mausam", "weather",
+    "gold", "sona", "silver", "chandi", "petrol", "diesel",
+}
+
+
+def is_simple_query_by_structure(text: str) -> bool:
+    """
+    Layer 1 + Layer 3 intent check — fully language-agnostic structural classifier.
+
+    Returns True (IS simple — skip RAG) when:
+      • Query is very short (≤ 3 words)  — almost always a greeting/ack
+      • OR query has no question words AND no domain keywords
+
+    Returns False (NEEDS RAG consideration) otherwise.
+    This is called BEFORE the LLM to avoid unnecessary API calls for trivial queries.
+    """
+    if not text or not text.strip():
+        return True  # empty = nothing to look up
+
+    words = text.strip().split()
+
+    # Rule 1: Very short utterances are conversational, not information-seeking
+    if len(words) <= 3:
+        return True
+
+    text_lower = text.lower()
+
+    # Rule 2: Presence of question words signals information-seeking intent
+    has_question = any(qw in text_lower for qw in _QUESTION_WORDS)
+
+    # Rule 3: Presence of domain keywords signals scheme/agri/health lookup needed
+    has_domain = any(dk in text_lower for dk in _DOMAIN_KEYWORDS)
+
+    # Simple = no question AND no domain keyword
+    if not has_question and not has_domain:
+        return True
+
+    return False  # Has question or domain keyword → let LLM + RAG decide
+
+
 def should_use_rag(speech_text: str) -> bool:
-    """Decide whether RAG retrieval is needed for this utterance."""
-    text_lower = speech_text.lower().strip()
+    """
+    Layer 3 intent guard — called INSIDE _fetch_data_async() to protect
+    the vector embedding + DynamoDB retrieval calls.
 
-    # Skip RAG: conversational/follow-up utterances
-    skip_keywords = [
-        "theek", "ठीक", "samajh", "समझ", "aur batao", "और बताओ",
-        "haan", "हाँ", "ok", "accha", "अच्छा", "shukriya", "शुक्रिया",
-        "bye", "band karo", "thanks", "nahi", "नहीं"
+    At this point [FETCH_DATA] tag was already set by the LLM (Layer 2),
+    so we only skip RAG vector search for live/market data queries that
+    are better served by the data.gov.in / web_search APIs directly.
+    This is language-agnostic — uses the same structural check as Layer 1.
+    """
+    # Live market/weather data: RAG vector search adds noise, not value
+    # The _fetch_data_gov() and _fetch_web_search() handle these directly
+    live_market_keywords = [
+        "mandi", "मंडी", "bhav", "भाव", "bhaav", "sona", "सोना",
+        "chandi", "चाँदी", "petrol", "diesel", "gold", "silver",
+        "weather", "mausam", "मौसम", "temperature", "rain", "barish",
+        "மண்டி", "தங்கம்", "வெள்ளி",  # Tamil: mandi, gold, silver
     ]
-    if any(kw in text_lower for kw in skip_keywords):
+    text_lower = speech_text.lower()
+    if any(kw in text_lower for kw in live_market_keywords):
+        logger.info(f"should_use_rag: skipping vector search for live data query: '{speech_text[:60]}'")
         return False
 
-    # Skip RAG: live data queries (handled by API tools)
-    live_keywords = [
-        "mandi", "मंडी", "bhav", "भाव", "price", "rate", "bhaav",
-        "mausam", "मौसम", "barish", "बारिश", "weather", "temperature"
-    ]
-    if any(kw in text_lower for kw in live_keywords):
-        return False
+    # Very short queries reach here only if LLM explicitly tagged [FETCH_DATA]
+    # Trust the LLM's decision — use RAG
+    if len(speech_text.split()) < 3:
+        return True
 
-    # Skip RAG: very short utterances (under 4 words = conversational)
-    if len(speech_text.split()) < 4:
-        return False
-
-    return True  # default: use RAG
+    return True  # Default: use RAG when LLM asked for it
 
 
 def rag_pipeline(query: str, language: str, call_sid: str = "", profile_context: str = "", system_prompt: str = "") -> str:
@@ -3077,9 +3346,11 @@ def _tts_chunks_parallel(text: str, language: str, speaker: str) -> list:
 
 
 # ── Helpers ──────────────────────────────────────────────────
-def _append_listen_gather(response, language: str, voice: str = "", agent: str = ""):
+def _append_listen_gather(response, language: str, voice: str = "", agent: str = "",
+                          audio_urls: list = None, text_to_say: str = ""):
     """Append a <Gather input=speech> to listen for speech. Replaces <Record> — saves ~3s per turn
-    by sending the transcript inline instead of recording→download→STT."""
+    by sending the transcript inline instead of recording→download→STT.
+    Nests Play/Say tags inside Gather to support Barge-in (Interruption Handling)."""
     cfg = LANG_CONFIG.get(language, LANG_CONFIG["en"])
     _voice = voice or cfg["sarvam_speaker"]
     _agent = agent or DEFAULT_AGENT
@@ -3100,7 +3371,21 @@ def _append_listen_gather(response, language: str, voice: str = "", agent: str =
         speech_timeout="2",
         timeout=10,
         hints=_all_hints,
+        enhanced=True,
     )
+    
+    # Nest Play/Say inside Gather for natural Barge-in (interruption handling)
+    if audio_urls:
+        # Stabilization pause before playback
+        try: g.pause(length=0.3)
+        except Exception: pass
+        for url in audio_urls:
+            g.play(url)
+    elif text_to_say:
+        try: g.pause(length=0.3)
+        except Exception: pass
+        g.say(text_to_say, voice=cfg["polly_voice"])
+        
     response.append(g)
     response.redirect(gather_url)
 

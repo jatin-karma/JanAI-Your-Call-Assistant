@@ -50,6 +50,27 @@ const detectLang = (text) => {
   return 'en'
 }
 
+const getInitialLang = () => {
+  const browserLang = navigator.language || navigator.languages?.[0] || 'hi'
+  if (browserLang.startsWith('ta')) return 'ta'
+  if (browserLang.startsWith('mr')) return 'mr'
+  if (browserLang.startsWith('te')) return 'te'
+  if (browserLang.startsWith('kn')) return 'kn'
+  if (browserLang.startsWith('bn')) return 'bn'
+  if (browserLang.startsWith('hi')) return 'hi'
+  return 'en'
+}
+
+const VAANI_GREETINGS = {
+  hi: 'नमस्ते! 🙏 मैं JanAI हूँ — JanAI की web assistant। आप मुझसे कुछ भी पूछ सकते हैं — योजनाओं के बारे में, JanAI के बारे में, या हमारी team के बारे में!',
+  en: 'Hello! 🙏 I am JanAI — your web assistant. You can ask me anything about government schemes, JanAI, or our team!',
+  mr: 'नमस्कार! 🙏 मी JanAI आहे — JanAI ची वेब असिस्टंट. आपण मला काहीही विचारू शकता — योजनांबद्दल, JanAI बद्दल किंवा आमच्या टीमबद्दल!',
+  ta: 'வணக்கம்! 🙏 நான் JanAI — JanAI இன் இணைய உதவியாளர். அரசு திட்டங்கள், JanAI அல்லது எங்களது குழுவை பற்றி நீங்கள் என்னிடம் கேட்கலாம்!',
+  te: 'నమస్కారం! 🙏 నేను JanAI — JanAI యొక్క వెబ్ అసిస్టెంట్. మీరు ప్రభుత్వ పథకాలు, JanAI లేదా మా బృందం గురించి నన్ను ఏదైనా అడగవచ్చు!',
+  kn: 'ನಮಸ್ಕಾರ! 🙏 ನಾನು JanAI — JanAI ವೆಬ್ ಅಸಿಸ್ಟೆಂಟ್. ನೀವು ಸರ್ಕಾರದ ಯೋಜನೆಗಳು, JanAI ಅಥವಾ ನಮ್ಮ ತಂಡದ ಬಗ್ಗೆ ನನ್ನನ್ನು ಕೇಳಬಹುದು!',
+  bn: 'নমস্কার! 🙏 আমি JanAI — JanAI এর ওয়েব অ্যাসিস্ট্যান্ট। আপনি আমাকে সরকারি প্রকল্প, JanAI বা আমাদের টিম সম্পর্কে যেকোনো কিছু জিজ্ঞাসা করতে পারেন!'
+}
+
 // ── Main Widget ───────────────────────────────────────
 export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
   // apiBaseUrl → calling agent (phone/Twilio) — unchanged, used by TryPage
@@ -61,9 +82,10 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
 
   const [isOpen, setIsOpen] = useState(false)
   const [mode, setMode] = useState('agent')   // 'agent' | 'text'
-  const VAANI_GREETING = 'नमस्ते! 🙏 मैं JanAI हूँ — JanAI की web assistant। आप मुझसे कुछ भी पूछ सकते हैं — योजनाओं के बारे में, JanAI के बारे में, या हमारी team के बारे में!'
+  const initialLang = getInitialLang()
+  const [activeLang, setActiveLang] = useState(initialLang)
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: VAANI_GREETING }
+    { role: 'assistant', content: VAANI_GREETINGS[initialLang] }
   ])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
@@ -77,9 +99,28 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
   const audioChunksRef = useRef([])
 
   // ── Load chat history ─────────────────────────────
+  // Use a version key so old cached greetings are cleared on code updates
+  const CHAT_VERSION = 'v3'
   useEffect(() => {
+    const savedVersion = localStorage.getItem('janai_chat_version')
+    if (savedVersion !== CHAT_VERSION) {
+      // Clear stale cache — old greeting will be wiped and new language-aware one shown
+      localStorage.removeItem('janai_chat_history')
+      localStorage.setItem('janai_chat_version', CHAT_VERSION)
+      return
+    }
     const saved = localStorage.getItem('janai_chat_history')
-    if (saved) { try { setMessages(JSON.parse(saved)) } catch (_) {} }
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        // Replace the first assistant message with the correct language greeting
+        const updated = [
+          { role: 'assistant', content: VAANI_GREETINGS[activeLang] || VAANI_GREETINGS['hi'] },
+          ...parsed.slice(1),
+        ]
+        setMessages(updated)
+      } catch (_) {}
+    }
   }, [])
 
   // ── Save chat history ─────────────────────────────
@@ -100,13 +141,22 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
       recognitionRef.current = new SR()
       recognitionRef.current.continuous = false
       recognitionRef.current.interimResults = true
-      recognitionRef.current.lang = 'hi-IN'
       recognitionRef.current.onresult = (e) => {
         setInput(Array.from(e.results).map((r) => r[0].transcript).join(''))
       }
       recognitionRef.current.onend = () => setIsRecording(false)
     }
   }, [])
+
+  // Sync recognitionRef language when activeLang updates
+  useEffect(() => {
+    if (recognitionRef.current) {
+      const langCodes = {
+        hi: 'hi-IN', mr: 'mr-IN', ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', bn: 'bn-IN', en: 'en-IN'
+      }
+      recognitionRef.current.lang = langCodes[activeLang] || 'hi-IN'
+    }
+  }, [activeLang])
 
   // ── STT: Sarvam Saarika via MediaRecorder ─────────
   const startSarvamSTT = async () => {
@@ -126,10 +176,13 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
         let binary = ''
         bytes.forEach((b) => (binary += String.fromCharCode(b)))
         const audio_base64 = btoa(binary)
+        const langCodes = {
+          hi: 'hi-IN', mr: 'mr-IN', ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', bn: 'bn-IN', en: 'en-IN'
+        }
         const res = await fetch(`${janaiApi}/janai/stt`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audio_base64, language: 'hi-IN' }),
+          body: JSON.stringify({ audio_base64, language: langCodes[activeLang] || 'hi-IN' }),
         })
         const data = await res.json()
         if (data.transcript) setInput(data.transcript)
@@ -199,10 +252,13 @@ export default function JanAIWidget({ apiBaseUrl, janaiApiUrl } = {}) {
         body: JSON.stringify({
           message: userMsg,
           history,
-          language: detectLang(userMsg),
+          language: activeLang,
         }),
       })
       const data = await res.json()
+
+      const finalLang = data.language || activeLang
+      setActiveLang(finalLang)
 
       const finalText = data.answer || 'Sorry, something went wrong.'
       const emotion = data.emotion || null
