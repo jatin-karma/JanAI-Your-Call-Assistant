@@ -13,8 +13,16 @@ import { OPTIMAL_AUDIO_CONSTRAINTS } from '../utils/audioConstraints'
 export function CallMeBack({ compact = false }) {
   const [countryCode, setCountryCode] = useState('+91')
   const [phone, setPhone] = useState('')
+  const [language, setLanguage] = useState('hi')
   const [status, setStatus] = useState('idle') // idle | sending | success | error
   const [errorMsg, setErrorMsg] = useState('')
+
+  const LANG_OPTIONS = [
+    { code: 'hi', label: '🇮🇳 Hindi', sub: 'हिंदी' },
+    { code: 'mr', label: '🇮🇳 Marathi', sub: 'मराठी' },
+    { code: 'ta', label: '🇮🇳 Tamil', sub: 'தமிழ்' },
+    { code: 'en', label: '🇬🇧 English', sub: 'English' },
+  ]
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -34,7 +42,7 @@ export function CallMeBack({ compact = false }) {
       const res = await fetch(`${API_BASE}/call/initiate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: fullNumber }),
+        body: JSON.stringify({ phone_number: fullNumber, language }),
       })
 
       const data = await res.json()
@@ -51,6 +59,7 @@ export function CallMeBack({ compact = false }) {
   }
 
   if (status === 'success') {
+    const selectedLang = LANG_OPTIONS.find(l => l.code === language)
     return (
       <div className={`text-center ${compact ? 'py-6' : 'py-12'}`}>
         <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -58,7 +67,7 @@ export function CallMeBack({ compact = false }) {
         </div>
         <h3 className="text-lg font-bold text-content-primary mb-1">📞 Calling you now!</h3>
         <p className="text-sm text-content-secondary mb-1">
-          Pick up in ~10 seconds!
+          Pick up in ~10 seconds! Call will be in <strong>{selectedLang?.label}</strong>.
         </p>
         <p className="font-hindi text-accent-600 text-xs mb-4">
           आपके नंबर पर कॉल आ रही है। कृपया कॉल उठाएं।
@@ -105,6 +114,33 @@ export function CallMeBack({ compact = false }) {
         </div>
       </div>
 
+      {/* Language Selector */}
+      <div>
+        <label className="block text-sm font-medium text-content-primary mb-1.5">
+          Preferred Language <span className="font-hindi text-content-secondary text-xs">— भाषा चुनें</span>
+        </label>
+        <div className="grid grid-cols-4 gap-2">
+          {LANG_OPTIONS.map(lang => (
+            <button
+              key={lang.code}
+              type="button"
+              onClick={() => setLanguage(lang.code)}
+              className={`flex flex-col items-center justify-center px-2 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                language === lang.code
+                  ? 'border-accent-500 bg-accent-50 text-accent-700'
+                  : 'border-gray-200 bg-gray-50 text-content-secondary hover:border-accent-300 hover:bg-accent-50'
+              }`}
+            >
+              <span className="text-base mb-0.5">{lang.label.split(' ')[0]}</span>
+              <span>{lang.sub}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-content-secondary mt-1.5">
+          💡 You can switch languages anytime during the call by just speaking in that language.
+        </p>
+      </div>
+
       {/* Error */}
       {(status === 'error' || errorMsg) && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
@@ -137,6 +173,7 @@ export function CallMeBack({ compact = false }) {
     </form>
   )
 }
+
 
 
 // ══════════════════════════════════════════════════════

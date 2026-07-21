@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, UserPlus } from 'lucide-react'
+import { ArrowLeft, Loader2, UserPlus, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Register() {
@@ -8,6 +8,7 @@ export default function Register() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+
   const { register } = useAuth()
   const navigate = useNavigate()
 
@@ -15,8 +16,14 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!form.name || !form.email || !form.password) { setError('Name, email and password are required'); return }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
+    if (!form.name || !form.email || !form.password || !form.phone) {
+      setError('Please fill in Name, Email Address, Password, and Mobile Number.')
+      return
+    }
+    if (form.password.length < 8) {
+      setError('Password must be at least 8 characters long.')
+      return
+    }
 
     setLoading(true)
     setError('')
@@ -35,14 +42,16 @@ export default function Register() {
       <div className="min-h-screen bg-surface-secondary pt-20 flex items-start justify-center">
         <div className="w-full max-w-md mx-auto px-6 py-12">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <UserPlus size={28} className="text-green-500" />
+            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100 text-emerald-500">
+              <CheckCircle2 size={32} />
             </div>
-            <h2 className="text-xl font-bold text-content-primary mb-2">Account Created!</h2>
+            <h2 className="text-2xl font-bold text-content-primary mb-2">Account Created Successfully!</h2>
             <p className="text-sm text-content-secondary mb-6">
-              You can now log in with your email and password.
+              Your account has been created. You can now log in with your email address and password!
             </p>
-            <Link to="/login" className="btn-primary">Go to Login</Link>
+            <Link to="/login" className="btn-primary w-full block text-center py-3.5">
+              Proceed to Login →
+            </Link>
           </div>
         </div>
       </div>
@@ -61,24 +70,26 @@ export default function Register() {
             <div className="w-14 h-14 bg-gradient-accent rounded-2xl flex items-center justify-center mx-auto mb-4">
               <UserPlus size={24} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-content-primary">Create Account</h1>
-            <p className="text-sm text-content-secondary mt-1">Sign up for personalized JanAI</p>
+            <h1 className="text-2xl font-bold text-content-primary">Create Your Account</h1>
+            <p className="text-sm text-content-secondary mt-1">Sign up for JanAI Voice Assistant</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-content-primary mb-1.5">
-                Name <span className="font-hindi text-content-secondary text-xs">— नाम</span>
+                Full Name <span className="text-red-500">*</span> <span className="font-hindi text-content-secondary text-xs">— नाम</span>
               </label>
               <input
                 type="text" value={form.name} onChange={update('name')}
-                placeholder="Your name"
+                placeholder="Rahul Sharma"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-content-primary bg-white focus:border-accent-500 focus:ring-1 focus:ring-accent-500 outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-content-primary mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-content-primary mb-1.5">
+                Email Address <span className="text-red-500">*</span>
+              </label>
               <input
                 type="email" value={form.email} onChange={update('email')}
                 placeholder="you@example.com"
@@ -87,7 +98,9 @@ export default function Register() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-content-primary mb-1.5">Password</label>
+              <label className="block text-sm font-medium text-content-primary mb-1.5">
+                Password <span className="text-red-500">*</span>
+              </label>
               <input
                 type="password" value={form.password} onChange={update('password')}
                 placeholder="Minimum 8 characters"
@@ -97,13 +110,19 @@ export default function Register() {
 
             <div>
               <label className="block text-sm font-medium text-content-primary mb-1.5">
-                Phone <span className="text-content-tertiary text-xs">(optional — link phone calls to your account)</span>
+                Mobile Number <span className="text-red-500">*</span>
               </label>
-              <input
-                type="tel" value={form.phone} onChange={update('phone')}
-                placeholder="+91 98765 43210"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-content-primary bg-white focus:border-accent-500 focus:ring-1 focus:ring-accent-500 outline-none font-mono"
-              />
+              <div className="flex gap-2">
+                <span className="px-3.5 py-3 border border-gray-200 rounded-xl bg-gray-50 text-content-secondary font-medium text-sm flex items-center">
+                  +91
+                </span>
+                <input
+                  type="tel" value={form.phone} onChange={update('phone')}
+                  placeholder="9876543210"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-content-primary bg-white focus:border-accent-500 focus:ring-1 focus:ring-accent-500 outline-none font-mono"
+                />
+              </div>
+              <p className="text-xs text-content-tertiary mt-1">Used to link incoming voice phone calls to your account profile.</p>
             </div>
 
             {error && (
@@ -113,7 +132,7 @@ export default function Register() {
             )}
 
             <button type="submit" disabled={loading} className="btn-primary w-full text-base py-3.5 disabled:opacity-50">
-              {loading ? <><Loader2 size={18} className="animate-spin" /> Creating...</> : 'Create Account'}
+              {loading ? <><Loader2 size={18} className="animate-spin" /> Creating Account...</> : 'Create Account ✓'}
             </button>
           </form>
 

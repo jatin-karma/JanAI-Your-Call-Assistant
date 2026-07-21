@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || 'https://7hrrqf2fol.execute-api.us-east-1.amazonaws.com/prod'
-const COGNITO_CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || ''
-const COGNITO_USER_POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || ''
 
 const AuthContext = createContext(null)
 
@@ -90,13 +88,72 @@ export function AuthProvider({ children }) {
   }
 
   async function forgotPassword(email) {
-    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ action: 'forgot-password', email }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Failed to send password reset link')
+    return data
+  }
+
+  async function sendOtp(phone) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'send-otp', phone }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to send OTP')
+    return data
+  }
+
+  async function verifyOtp(phone, code) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'verify-otp', phone, code }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'OTP verification failed')
+
+    const jwt = data.token
+    if (jwt) {
+      localStorage.setItem('janai_token', jwt)
+      setToken(jwt)
+      try {
+        const p = await fetchProfile(jwt)
+        setProfile(p)
+        setUser(p)
+      } catch {
+        setUser(data.user)
+      }
+    }
+    return data
+  }
+
+  async function resetPassword(phone, code, newPassword) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset-password', phone, code, new_password: newPassword }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Password reset failed')
+
+    const jwt = data.token
+    if (jwt) {
+      localStorage.setItem('janai_token', jwt)
+      setToken(jwt)
+      try {
+        const p = await fetchProfile(jwt)
+        setProfile(p)
+        setUser(p)
+      } catch {
+        setUser(data.user)
+      }
+    }
     return data
   }
 
@@ -120,6 +177,9 @@ export function AuthProvider({ children }) {
     login,
     register,
     forgotPassword,
+    sendOtp,
+    verifyOtp,
+    resetPassword,
     logout,
     updateProfile,
     getCallHistory,

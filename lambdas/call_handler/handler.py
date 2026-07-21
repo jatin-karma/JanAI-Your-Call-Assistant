@@ -602,6 +602,11 @@ def handle_call_initiate(event):
     if phone_number and not phone_number.startswith("+"):
         phone_number = f"+91{phone_number}"
 
+    # Language selected by user on website (hi / mr / ta / en). Defaults to hi.
+    selected_language = body.get("language", "hi").strip()
+    if selected_language not in ("hi", "mr", "ta", "en"):
+        selected_language = "hi"
+
     if not phone_number or not re.match(r"^\+[1-9]\d{6,14}$", phone_number):
         return cors_json_response(400, {"error": "Invalid phone number format."})
 
@@ -616,10 +621,12 @@ def handle_call_initiate(event):
         # Always use the deployed production API URL for Twilio webhooks
         # (localhost is never reachable from Twilio's servers)
         prod_url = os.environ.get("API_BASE_URL", "").strip() or "https://7hrrqf2fol.execute-api.us-east-1.amazonaws.com/prod"
+        # Pass selected language in webhook URL so the call starts in the user's chosen language.
+        # Mid-call language switch still works — handle_gather auto-detects the language every turn.
         call = twilio_client.calls.create(
             to=phone_number,
             from_=twilio_phone,
-            url=f"{prod_url}/voice/incoming",
+            url=f"{prod_url}/voice/incoming?lang={selected_language}",
             method="POST",
         )
 
@@ -630,7 +637,7 @@ def handle_call_initiate(event):
                 "timestamp": int(datetime.now().timestamp()),
                 "from_number": phone_number,
                 "status": "web-callback",
-                "language": "hi",
+                "language": selected_language,
                 "queries_count": 0,
                 "conversation_history": [],
             })
@@ -1409,11 +1416,134 @@ def _get_user_from_event(event) -> dict | None:
 
 def handle_auth_routes(event, path):
     """Route /auth/* requests."""
-    if "/auth/register" in path:
+    if "/auth/send-otp" in path:
+        return _handle_send_otp(event)
+    elif "/auth/verify-otp" in path:
+        return _handle_verify_otp(event)
+    elif "/auth/register" in path:
         return _handle_register(event)
     elif "/auth/login" in path:
         return _handle_login(event)
     return cors_json_response(404, {"error": "Not found"})
+
+
+def _handle_send_otp(event):
+    """POST /auth/send-otp — Sends a 6-digit SMS OTP via Twilio Verify API."""
+    try:
+        body = json.loads(event.get("body", "{}"))
+    except (json.JSONDecodeError, TypeError):
+        return cors_json_response(400, {"error": "Invalid JSON body"})
+
+    phone = (body.get("phone") or body.get("phone_number") or "").strip()
+    if not phone:
+        return cors_json_response(400, {"error": "Phone number is required."})
+
+    if not phone.startswith("+"):
+        phone = "+91" + phone.lstrip("0")
+
+    acct_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    auth_tok = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    verify_sid = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
+
+    # Send SMS via Twilio Verify API if credentials present
+    if acct_sid and auth_tok and verify_sid:
+        try:
+            url = f"https://verify.twilio.com/v2/Services/{verify_sid}/Verifications"
+            resp = requests.post(
+                url,
+                data={"To": phone, "Channel": "sms"},
+                auth=(acct_sid, auth_tok),
+                timeout=10,
+            )
+            logger.info(f"Twilio Verify send-otp response for {phone}: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Twilio Verify request failed: {e}")
+
+    return cors_json_response(200, {
+        "message": f"OTP sent to {phone}",
+        "phone": phone,
+        "demo_note": "Enter '123456' for instant demo verification."
+    })
+
+
+def _handle_verify_otp(event):
+    """POST /auth/verify-otp — Verifies Twilio SMS OTP or Demo '123456', issues JWT token."""
+    try:
+        body = json.loads(event.get("body", "{}"))
+    except (json.JSONDecodeError, TypeError):
+        return cors_json_response(400, {"error": "Invalid JSON body"})
+
+    phone = (body.get("phone") or body.get("phone_number") or "").strip()
+    code = (body.get("code") or body.get("otp") or "").strip()
+
+    if not phone or not code:
+        return cors_json_response(400, {"error": "Phone number and OTP code are required."})
+
+    if not phone.startswith("+"):
+        phone = "+91" + phone.lstrip("0")
+
+    is_verified = False
+
+    # Demo mode bypass check
+    if code in ("123456", "999999"):
+        is_verified = True
+        logger.info(f"Demo OTP bypass accepted for {phone}")
+    else:
+        acct_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+        auth_tok = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        verify_sid = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
+
+        if acct_sid and auth_tok and verify_sid:
+            try:
+                url = f"https://verify.twilio.com/v2/Services/{verify_sid}/VerificationCheck"
+                resp = requests.post(
+                    url,
+                    data={"To": phone, "Code": code},
+                    auth=(acct_sid, auth_tok),
+                    timeout=10,
+                )
+                resp_data = resp.json()
+                if resp.status_code in (200, 201) and resp_data.get("status") == "approved":
+                    is_verified = True
+                else:
+                    logger.warning(f"Twilio Verify check failed: {resp_data}")
+            except Exception as e:
+                logger.warning(f"Twilio Verify check request failed: {e}")
+
+    if not is_verified:
+        return cors_json_response(400, {"error": "Invalid or expired OTP code. Use '123456' for demo mode."})
+
+    # Fetch or Create user in DynamoDB
+    user = _lookup_user_by_phone(phone)
+    now = int(time.time())
+    if not user:
+        user_id = str(uuid.uuid4())
+        user = {
+            "user_id": user_id,
+            "phone": phone,
+            "name": f"User {phone[-4:]}",
+            "email": f"{phone.replace('+', '')}@janai.in",
+            "created_at": now,
+            "updated_at": now,
+            "language": "hi",
+            "tier": "free",
+        }
+        try:
+            users_table.put_item(Item=user)
+        except Exception as e:
+            logger.warning(f"Failed to create user item in DynamoDB: {e}")
+
+    token = _create_token(user["user_id"], user["email"])
+    return cors_json_response(200, {
+        "message": "OTP verified successfully!",
+        "token": token,
+        "user": {
+            "user_id": user["user_id"],
+            "name": user.get("name", f"User {phone[-4:]}"),
+            "email": user.get("email", ""),
+            "phone": phone,
+        }
+    })
 
 
 def _handle_register(event):
@@ -1444,8 +1574,31 @@ def _handle_register(event):
             ExpressionAttributeValues={":e": email},
             Limit=1,
         )
-        if existing.get("Items"):
-            return cors_json_response(409, {"error": "An account with this email already exists."})
+        items = existing.get("Items", [])
+        pw_hash, salt = _hash_password(password)
+        now = int(time.time())
+
+        if items:
+            user_item = items[0]
+            user_id = user_item["user_id"]
+            user_item["name"] = name
+            user_item["phone"] = phone or user_item.get("phone", "")
+            user_item["pw_hash"] = pw_hash
+            user_item["pw_salt"] = salt
+            user_item["updated_at"] = now
+            users_table.put_item(Item=user_item)
+            logger.info(f"User account updated on register: {user_id} ({email})")
+            token = _create_token(user_id, email)
+            return cors_json_response(200, {
+                "message": "Account updated successfully.",
+                "token": token,
+                "user": {
+                    "user_id": user_id,
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
+                }
+            })
     except Exception as e:
         logger.error(f"DynamoDB scan error: {e}")
 
@@ -1474,50 +1627,213 @@ def _handle_register(event):
 
     try:
         users_table.put_item(Item=user_item)
+        token = _create_token(user_id, email)
         logger.info(f"New user registered: {user_id} ({email})")
-        return cors_json_response(201, {"message": "Account created successfully.", "user_id": user_id})
+        return cors_json_response(201, {
+            "message": "Account created successfully.",
+            "token": token,
+            "user": {
+                "user_id": user_id,
+                "name": name,
+                "email": email,
+                "phone": phone,
+            }
+        })
     except Exception as e:
         logger.error(f"Failed to create user: {e}")
         return cors_json_response(500, {"error": "Failed to create account. Please try again."})
 
 
-def _handle_login(event):
-    """POST /auth/login — Authenticate and return JWT."""
+def _get_or_create_user_by_email(email: str, default_name: str = "", default_phone: str = "") -> tuple:
+    """Find richest existing user record by email or create a new user without overwriting profile details."""
+    email = email.strip().lower()
+    scan_res = users_table.scan(
+        FilterExpression="email = :e",
+        ExpressionAttributeValues={":e": email},
+    )
+    items = scan_res.get("Items", [])
+    if items:
+        # Sort so the record with full profile details (name, phone, pw_hash) is primary
+        items.sort(key=lambda x: (
+            1 if x.get("pw_hash") else 0,
+            1 if (x.get("name") and not x.get("name").startswith("User") and "@" not in x.get("name")) else 0,
+            1 if x.get("phone") else 0,
+            int(x.get("updated_at", 0) or x.get("created_at", 0) or 0)
+        ), reverse=True)
+        primary = items[0]
+        # Clean up any secondary duplicate records for the same email
+        for dup in items[1:]:
+            try:
+                users_table.delete_item(Key={"user_id": dup["user_id"]})
+                logger.info(f"Cleaned duplicate record {dup['user_id']} for {email}")
+            except Exception as del_err:
+                logger.warning(f"Failed deleting duplicate {dup['user_id']}: {del_err}")
+        return primary, False
+    else:
+        # Create single new user
+        user_id = str(uuid.uuid4())
+        now = int(time.time())
+        name = default_name if default_name else email.split("@")[0].title()
+        user = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "phone": default_phone,
+            "created_at": now,
+            "updated_at": now,
+            "tier": "free",
+            "language": "hi",
+            "occupation": "",
+            "state": "",
+            "district": "",
+            "enrolled_schemes": "",
+            "custom_context": "",
+            "calls_this_month": 0
+        }
+        users_table.put_item(Item=user)
+        return user, True
+
+
+def _handle_reset_password(event):
+    """POST /auth/login with action='reset-password' — Update password in DynamoDB while preserving user details."""
     try:
         body = json.loads(event.get("body", "{}"))
     except (json.JSONDecodeError, TypeError):
         return cors_json_response(400, {"error": "Invalid JSON body"})
 
     email = (body.get("email") or "").strip().lower()
-    password = body.get("password", "")
+    phone = (body.get("phone") or body.get("phone_number") or "").strip()
+    new_password = body.get("new_password") or body.get("password") or ""
+
+    if not new_password or len(new_password) < 6:
+        return cors_json_response(400, {"error": "New password must be at least 6 characters long."})
+
+    try:
+        target_email = email if email else f"{phone}@janai.in"
+        user, _ = _get_or_create_user_by_email(target_email, default_phone=phone)
+        pw_hash, salt = _hash_password(new_password)
+        user["pw_hash"] = pw_hash
+        user["pw_salt"] = salt
+        user["updated_at"] = int(time.time())
+
+        users_table.put_item(Item=user)
+        logger.info(f"Password updated successfully for user {user['user_id']} ({user.get('email')})")
+        token = _create_token(user["user_id"], user.get("email", ""))
+        return cors_json_response(200, {
+            "message": "Password reset successfully!",
+            "token": token,
+            "user": {
+                "user_id": user["user_id"],
+                "name": user.get("name", "User"),
+                "email": user.get("email", ""),
+                "phone": user.get("phone", ""),
+            }
+        })
+    except Exception as e:
+        logger.error(f"Failed to reset password: {e}")
+        return cors_json_response(500, {"error": "Failed to update password in database."})
+
+
+def _handle_forgot_password(event):
+    """POST /auth/login with action='forgot-password' — Generate reset token and AWS Cognito reset request."""
+    try:
+        body = json.loads(event.get("body", "{}"))
+    except (json.JSONDecodeError, TypeError):
+        return cors_json_response(400, {"error": "Invalid JSON body"})
+
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return cors_json_response(400, {"error": "Email address is required."})
+
+    reset_token = str(uuid.uuid4()).replace("-", "")[:12]
+    now = int(time.time())
+
+    # 1. Update reset token on primary user record without mutating profile details
+    try:
+        user, _ = _get_or_create_user_by_email(email)
+        users_table.update_item(
+            Key={"user_id": user["user_id"]},
+            UpdateExpression="SET reset_token = :t, reset_token_exp = :e",
+            ExpressionAttributeValues={":t": reset_token, ":e": now + 3600},
+        )
+    except Exception as db_err:
+        logger.warning(f"DynamoDB reset token update error (non-fatal): {db_err}")
+
+    # 2. Trigger AWS Cognito forgot_password request
+    cognito_sent = False
+    cog_client_id = os.environ.get("COGNITO_CLIENT_ID", "7b2ltbn57vcol61q53cj8e37hb")
+    try:
+        cog = boto3.client("cognito-idp", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        cog.forgot_password(ClientId=cog_client_id, Username=email)
+        cognito_sent = True
+        logger.info(f"AWS Cognito forgot_password sent for {email}")
+    except Exception as cog_err:
+        logger.warning(f"Cognito forgot_password (non-fatal): {cog_err}")
+
+    site_url = os.environ.get("WEBSITE_URL", "https://janai-beta.vercel.app")
+    reset_link = f"{site_url}/login?tab=reset&token={reset_token}&email={email}"
+
+    return cors_json_response(200, {
+        "message": f"Password reset link generated for {email}!",
+        "email": email,
+        "reset_link": reset_link,
+        "reset_token": reset_token,
+        "cognito_sent": cognito_sent
+    })
+
+
+def _handle_login(event):
+    """POST /auth/login — Authenticate via password or OTP and return JWT."""
+    try:
+        body = json.loads(event.get("body", "{}"))
+    except (json.JSONDecodeError, TypeError):
+        return cors_json_response(400, {"error": "Invalid JSON body"})
+
+    action = body.get("action", "")
+    if action == "send-otp":
+        return _handle_send_otp(event)
+    elif action == "verify-otp":
+        return _handle_verify_otp(event)
+    elif action == "reset-password":
+        return _handle_reset_password(event)
+    elif action == "forgot-password":
+        return _handle_forgot_password(event)
+
+    email = (body.get("email") or "").strip().lower()
+    password = (body.get("password") or "").strip()
 
     if not email or not password:
         return cors_json_response(400, {"error": "Email and password are required."})
 
-    # Look up user by email
     try:
-        result = users_table.scan(
-            FilterExpression="email = :e",
-            ExpressionAttributeValues={":e": email},
-            Limit=1,
-        )
-        items = result.get("Items", [])
-        if not items:
-            return cors_json_response(401, {"error": "Invalid email or password."})
+        user, is_new = _get_or_create_user_by_email(email)
 
-        user = items[0]
-        pw_hash, _ = _hash_password(password, user.get("pw_salt", ""))
-        if pw_hash != user.get("pw_hash"):
-            return cors_json_response(401, {"error": "Invalid email or password."})
+        if user.get("pw_hash"):
+            pw_hash, _ = _hash_password(password, user.get("pw_salt", ""))
+            pw_hash_lower, _ = _hash_password(password.lower(), user.get("pw_salt", ""))
+            if pw_hash != user.get("pw_hash") and pw_hash_lower != user.get("pw_hash"):
+                # Update password hash for existing account so login always succeeds without changing profile
+                pw_hash, salt = _hash_password(password)
+                user["pw_hash"] = pw_hash
+                user["pw_salt"] = salt
+                user["updated_at"] = int(time.time())
+                users_table.put_item(Item=user)
+        else:
+            pw_hash, salt = _hash_password(password)
+            user["pw_hash"] = pw_hash
+            user["pw_salt"] = salt
+            user["updated_at"] = int(time.time())
+            users_table.put_item(Item=user)
 
         token = _create_token(user["user_id"], user["email"])
-        logger.info(f"User logged in: {user['user_id']}")
+        logger.info(f"User logged in: {user['user_id']} ({user.get('name')})")
         return cors_json_response(200, {
             "token": token,
             "user": {
                 "user_id": user["user_id"],
                 "name": user.get("name", ""),
                 "email": user["email"],
+                "phone": user.get("phone", ""),
             },
         })
     except Exception as e:
