@@ -8,7 +8,13 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
+  const [showForgotModal, setShowForgotModal] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotMsg, setForgotMsg] = useState('')
+  const [forgotErr, setForgotErr] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+
+  const { login, forgotPassword } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
@@ -25,6 +31,22 @@ export default function Login() {
       setError(err.message || 'Login failed. Please try again.')
     }
     setLoading(false)
+  }
+
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault()
+    if (!forgotEmail) { setForgotErr('Please enter your email address'); return }
+    setForgotLoading(true)
+    setForgotErr('')
+    setForgotMsg('')
+
+    try {
+      await forgotPassword(forgotEmail)
+      setForgotMsg('Password reset link has been sent to your email!')
+    } catch (err) {
+      setForgotErr(err.message || 'Failed to send reset link.')
+    }
+    setForgotLoading(false)
   }
 
   return (
@@ -54,7 +76,16 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-content-primary mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-content-primary">Password</label>
+                <button
+                  type="button"
+                  onClick={() => { setForgotEmail(email); setShowForgotModal(true); setForgotMsg(''); setForgotErr(''); }}
+                  className="text-xs font-semibold text-accent-500 hover:text-accent-600"
+                >
+                  Forgot Password?
+                </button>
+              </div>
               <input
                 type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -81,6 +112,45 @@ export default function Login() {
             <Link to="/register" className="text-accent-500 font-semibold hover:text-accent-600">Sign up</Link>
           </p>
         </div>
+
+        {/* Forgot Password Modal */}
+        {showForgotModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl relative animate-in fade-in zoom-in-95">
+              <h3 className="text-lg font-bold text-content-primary mb-1">Reset Password</h3>
+              <p className="text-xs text-content-secondary mb-4">Enter your email address to receive a password reset link.</p>
+
+              <form onSubmit={handleForgotSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-content-primary mb-1">Your Email</label>
+                  <input
+                    type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-accent-500"
+                  />
+                </div>
+
+                {forgotErr && <p className="text-xs text-red-600 bg-red-50 p-2 rounded-lg">{forgotErr}</p>}
+                {forgotMsg && <p className="text-xs text-green-600 bg-green-50 p-2 rounded-lg">{forgotMsg}</p>}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button" onClick={() => setShowForgotModal(false)}
+                    className="btn-secondary flex-1 text-sm py-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit" disabled={forgotLoading}
+                    className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
+                  >
+                    {forgotLoading ? <Loader2 size={14} className="animate-spin mx-auto" /> : 'Send Reset Link'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

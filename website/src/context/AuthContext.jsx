@@ -89,6 +89,17 @@ export function AuthProvider({ children }) {
     return await res.json()
   }
 
+  async function forgotPassword(email) {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to send password reset link')
+    return data
+  }
+
   function logout() {
     localStorage.removeItem('janai_token')
     setToken(null)
@@ -108,6 +119,7 @@ export function AuthProvider({ children }) {
     isLoggedIn: !!token && !!user,
     login,
     register,
+    forgotPassword,
     logout,
     updateProfile,
     getCallHistory,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, User, Save, LogOut, Clock, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, User, Save, LogOut, Clock, MessageCircle, MapPin } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 const OCCUPATIONS = [
@@ -35,6 +35,7 @@ export default function Profile() {
   const [history, setHistory] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [detectingLoc, setDetectingLoc] = useState(false)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('profile')
 
@@ -56,7 +57,12 @@ export default function Profile() {
   useEffect(() => {
     if (activeTab === 'history' && isLoggedIn) {
       getCallHistory()
-        .then(setHistory)
+        .then(res => {
+          if (Array.isArray(res)) setHistory(res)
+          else if (res && Array.isArray(res.history)) setHistory(res.history)
+          else if (res && Array.isArray(res.items)) setHistory(res.items)
+          else setHistory([])
+        })
         .catch(() => setHistory([]))
     }
   }, [activeTab, isLoggedIn])
@@ -64,6 +70,36 @@ export default function Profile() {
   const update = (field) => (e) => {
     setForm({ ...form, [field]: e.target.value })
     setSaved(false)
+  }
+
+  const detectLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.')
+      return
+    }
+    setDetectingLoc(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`)
+          const data = await res.json()
+          const state = data.address?.state || ''
+          const district = data.address?.state_district || data.address?.county || data.address?.city || ''
+          setForm(prev => ({
+            ...prev,
+            state: STATES.find(s => s.toLowerCase() === state.toLowerCase()) || prev.state || state,
+            district: district || prev.district
+          }))
+        } catch (err) {
+          console.warn('Reverse geocoding failed:', err)
+        }
+        setDetectingLoc(false)
+      },
+      (err) => {
+        setError('Location permission denied or unavailable.')
+        setDetectingLoc(false)
+      }
+    )
   }
 
   const handleSave = async (e) => {
@@ -178,8 +214,16 @@ export default function Profile() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-content-primary mb-1.5">District</label>
-                  <input type="text" value={form.district} onChange={update('district')} placeholder="Your district"
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-content-primary">District / Location</label>
+                    <button
+                      type="button" onClick={detectLocation} disabled={detectingLoc}
+                      className="text-xs font-semibold text-accent-500 hover:text-accent-600 inline-flex items-center gap-1"
+                    >
+                      {detectingLoc ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />} Detect Location
+                    </button>
+                  </div>
+                  <input type="text" value={form.district} onChange={update('district')} placeholder="Your district or city"
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-accent-500 focus:ring-1 focus:ring-accent-500 outline-none" />
                 </div>
 
@@ -227,7 +271,7 @@ export default function Profile() {
         {activeTab === 'history' && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
             <h2 className="text-lg font-bold text-content-primary mb-4">Recent Conversations</h2>
-            {history.length === 0 ? (
+            {(!Array.isArray(history) || history.length === 0) ? (
               <div className="text-center py-12 text-content-tertiary">
                 <MessageCircle size={32} className="mx-auto mb-3 opacity-40" />
                 <p className="text-sm">No conversation history yet</p>
@@ -239,14 +283,17 @@ export default function Profile() {
                   <div key={i} className="border border-gray-100 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs text-content-tertiary">
-                        {new Date(entry.ts * 1000).toLocaleString('en-IN')}
+                        {entry?.ts ? new Date(typeof entry.ts === 'number' ? entry.ts * 1000 : entry.ts).toLocaleString('en-IN') : (entry?.timestamp || 'Recent')}
                       </span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-accent-50 text-accent-600 font-medium">
-                        {entry.language === 'hi' ? 'हिंदी' : entry.language === 'mr' ? 'मराठी' : entry.language === 'ta' ? 'தமிழ்' : 'English'}
+                        {entry?.language === 'hi' ? 'हिंदी' : entry?.language === 'mr' ? 'मराठी' : entry?.language === 'ta' ? 'தமிழ்' : 'English'}
                       </span>
                     </div>
-                    <p className="text-sm text-content-primary font-medium mb-1">Q: {entry.query}</p>
-                    <p className="text-sm text-content-secondary">A: {entry.answer}</p>
+                    <p className="text-sm text-content-primary font-medium mb-1">Q: {entry?.query || entry?.user || 'Voice Question'}</p>
+                    <p className="text-sm text-content-secondary">A: {entry?.answer || entry?.ai || 'Response'}</p>
+                    {entry?.audio_url && (
+                      <audio controls src={entry.audio_url} className="w-full mt-2 h-8" />
+                    )}
                   </div>
                 ))}
               </div>

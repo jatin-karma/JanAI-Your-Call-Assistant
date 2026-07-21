@@ -49,9 +49,9 @@ dynamodb  = boto3.resource("dynamodb", region_name=AWS_REGION)
 bedrock   = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 s3_client = boto3.client("s3", region_name=AWS_REGION)
 
-calls_table     = dynamodb.Table(os.environ["DYNAMODB_CALLS_TABLE"])
-knowledge_table = dynamodb.Table(os.environ["DYNAMODB_KNOWLEDGE_TABLE"])
-vectors_table   = dynamodb.Table(os.environ["DYNAMODB_VECTORS_TABLE"])
+calls_table     = dynamodb.Table(os.environ.get("DYNAMODB_CALLS_TABLE", "janai_calls"))
+knowledge_table = dynamodb.Table(os.environ.get("DYNAMODB_KNOWLEDGE_TABLE", "janai_knowledge"))
+vectors_table   = dynamodb.Table(os.environ.get("DYNAMODB_VECTORS_TABLE", "janai_vectors"))
 
 # ── OpenAI client ────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -59,10 +59,10 @@ openai_client  = _OpenAI(api_key=OPENAI_API_KEY) if (_OPENAI_AVAILABLE and OPENA
 LLM_PROVIDER   = os.environ.get("LLM_PROVIDER", "bedrock")  # "openai" or "bedrock"
 
 # ── Config ───────────────────────────────────────────────────
-BEDROCK_MODEL_ID           = os.environ["BEDROCK_MODEL_ID"]
-BEDROCK_EMBEDDING_MODEL_ID = os.environ["BEDROCK_EMBEDDING_MODEL_ID"]
+BEDROCK_MODEL_ID           = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+BEDROCK_EMBEDDING_MODEL_ID = os.environ.get("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
 SARVAM_API_KEY             = os.environ.get("SARVAM_API_KEY", "")
-S3_BUCKET                  = os.environ["S3_DOCUMENTS_BUCKET"]
+S3_BUCKET                  = os.environ.get("S3_DOCUMENTS_BUCKET", "janai-documents-2026")
 BASE_URL                   = ""  # Set at runtime from API Gateway event
 _jwt_secret_raw            = os.environ.get("JWT_SECRET", "")
 JWT_SECRET                 = _jwt_secret_raw if _jwt_secret_raw else os.urandom(32).hex()
@@ -1860,8 +1860,9 @@ def handle_incoming(params):
     })
 
     # Browser call: skip language menu, go to voice select (or straight to gather if voice pre-set)
+    user_name_param = params.get("user_name", "").strip()
     if lang_param and lang_param in LANG_CONFIG:
-        return _browser_call_welcome(call_sid, language, voice=voice_param)
+        return _browser_call_welcome(call_sid, language, voice=voice_param, user_name=user_name_param)
 
     # ── Returning phone caller? Check phone_profiles for stored language ──
     phone_profile = _get_phone_profile(from_number)
@@ -1869,14 +1870,14 @@ def handle_incoming(params):
         # Returning caller — skip language menu entirely
         stored_lang = phone_profile["language"]
         stored_agent = phone_profile.get("preferred_agent", DEFAULT_AGENT)
-        stored_name = phone_profile.get("user_name", "")
+        stored_name = phone_profile.get("user_name", "") or user_name_param
         agent_cfg = AGENT_REGISTRY.get(stored_agent, AGENT_REGISTRY[DEFAULT_AGENT])
         agent_voice = agent_cfg["sarvam_speaker"]
         greeting_key = f"greeting_{stored_lang}"
         greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
         if stored_name:
             # Personalize greeting for returning callers
-            greeting = f"नमस्ते {stored_name}! " + greeting if stored_lang == "hi" else greeting
+            greeting = f"नमस्ते {stored_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?" if stored_lang == "hi" else f"Hello {stored_name}! Welcome to JanAI. How can I assist you today?"
 
         stt_url = f"{BASE_URL}/voice/stt?lang={stored_lang}&voice={agent_voice}&agent={stored_agent}" if BASE_URL else f"/voice/stt?lang={stored_lang}&voice={agent_voice}&agent={stored_agent}"  # noqa: F841 (kept for logging only)
 
@@ -1914,7 +1915,7 @@ def handle_incoming(params):
     return twiml_response(response)
 
 
-def _browser_call_welcome(call_sid: str, language: str, voice: str = ""):
+def _browser_call_welcome(call_sid: str, language: str, voice: str = "", user_name: str = ""):
     """Skip DTMF menu for browser calls — greet using selected agent/voice and gather."""
     if voice and voice in VOICE_OPTIONS:
         # Determine agent name based on the selected speaker voice
@@ -1923,11 +1924,21 @@ def _browser_call_welcome(call_sid: str, language: str, voice: str = ""):
             if v.get("sarvam_speaker") == voice:
                 agent = k
                 break
-                
+
         agent_cfg = AGENT_REGISTRY[agent]
-        greeting_key = f"greeting_{language}"
-        greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
-        
+        if user_name:
+            if language == "hi":
+                greeting = f"नमस्ते {user_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?"
+            elif language == "mr":
+                greeting = f"नमस्कार {user_name}! जन-एआई मध्ये आपले स्वागत आहे. मी तुम्हाला कशी मदत करू?"
+            elif language == "ta":
+                greeting = f"வணக்கம் {user_name}! JanAI-க்கு வரவேற்கிறோம்."
+            else:
+                greeting = f"Hello {user_name}! Welcome to JanAI. How can I assist you today?"
+        else:
+            greeting_key = f"greeting_{language}"
+            greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
+
         response = VoiceResponse()
         tts_say(response, greeting, language, speaker=voice)
         _append_listen_gather(response, language, voice, agent)  # voice==agent for browser calls
@@ -1937,8 +1948,20 @@ def _browser_call_welcome(call_sid: str, language: str, voice: str = ""):
     agent      = DEFAULT_AGENT
     agent_cfg  = AGENT_REGISTRY[agent]
     agent_voice = agent_cfg["sarvam_speaker"]
-    greeting_key = f"greeting_{language}"
-    greeting   = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
+
+    if user_name:
+        if language == "hi":
+            greeting = f"नमस्ते {user_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?"
+        elif language == "mr":
+            greeting = f"नमस्कार {user_name}! जन-एआई मध्ये आपले स्वागत आहे. मी तुम्हाला कशी मदत करू?"
+        elif language == "ta":
+            greeting = f"வணக்கம் {user_name}! JanAI-க்கு வரவேற்கிறோம்."
+        else:
+            greeting = f"Hello {user_name}! Welcome to JanAI. How can I assist you today?"
+    else:
+        greeting_key = f"greeting_{language}"
+        greeting   = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
+
     response   = VoiceResponse()
     tts_say(response, greeting, language, speaker=agent_voice)
     _append_listen_gather(response, language, agent_voice, agent)
