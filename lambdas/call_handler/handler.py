@@ -294,20 +294,14 @@ def _get_best_voice_for_agent_lang(agent: str, language: str) -> str:
     """
     Return the optimal Sarvam TTS speaker for the given agent + language combo.
 
-    Rules:
-    - hitesh: always uses 'hitesh' voice (only male Indian voice available)
-    - vidya:  always uses 'vidya' voice (English-optimized female)
-    - arya:   uses 'vidya' for English (clearer), 'arya' for all Indian languages
-
-    This is called whenever language changes mid-call so the voice automatically
-    adapts without the user needing to say 'change voice'.
+    Distinct Voices:
+    - hitesh: maps to 'abhilash' (Indian male voice)
+    - vidya:  maps to 'meera' (gentle Indian female voice)
+    - arya:   maps to 'arya' (warm Indian female voice)
     """
     if agent == "hitesh":
-        return "hitesh"   # male voice — works across all 4 languages
+        return "hitesh"
     if agent == "vidya":
-        return "vidya"    # English-optimized female
-    # arya (default): prefer vidya for English, arya for Indian languages
-    if language == "en":
         return "vidya"
     return "arya"
 
@@ -382,9 +376,9 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
     try:
         cfg = LANG_CONFIG.get(language, LANG_CONFIG["en"])
         _SARVAM_VOICE_MAP = {
-            "hitesh": "abhilash",
-            "arya": "vidya" if language == "en" else "arya",
-            "vidya": "vidya" if language == "en" else "arya",
+            "hitesh": "abhilash",  # Male Indian voice
+            "arya": "arya",        # Female Indian voice 1
+            "vidya": "meera",      # Female Indian voice 2 (gentle, distinct from Arya)
         }
         resolved_speaker = _SARVAM_VOICE_MAP.get(speaker, speaker if speaker in VOICE_OPTIONS else cfg["sarvam_speaker"])
         payload = {
