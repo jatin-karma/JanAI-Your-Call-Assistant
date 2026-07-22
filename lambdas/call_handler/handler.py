@@ -195,6 +195,21 @@ IMPORTANT: You are female. In Hindi always use feminine verb forms: करती
 DEFAULT_AGENT = "arya"
 
 
+def _get_personalized_greeting(name: str, language: str, agent_cfg: dict) -> str:
+    """Generate personalized welcome greeting with correct gender grammar and 4-language support."""
+    gender = agent_cfg.get("gender", "female")
+    if language == "hi":
+        verb = "कर सकती हूँ" if gender == "female" else "कर सकता हूँ"
+        return f"नमस्ते {name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या मदद {verb}?"
+    elif language == "mr":
+        verb = "करू शकते" if gender == "female" else "करू शकतो"
+        return f"नमस्कार {name}! जन-एआई मध्ये आपले स्वागत आहे. मी तुम्हाला कशी मदत {verb}?"
+    elif language == "ta":
+        return f"வணக்கம் {name}! JanAI-க்கு மீண்டும் வரவேற்கிறோம். நான் உங்களுக்கு எப்படி உதவட்டும்?"
+    else:
+        return f"Hello {name}! Welcome to JanAI. How can I assist you today?"
+
+
 def build_system_prompt(agent_key: str, language: str,
                         user_name: str = None,
                         cross_call_context: str = None,
@@ -636,8 +651,10 @@ def handle_call_initiate(event):
 
     try:
         from twilio.rest import Client
-        twilio_client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
-        twilio_phone = os.environ.get("TWILIO_PHONE_NUMBER", "+18312988145")
+        account_sid  = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+        auth_token   = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+        twilio_phone = os.environ.get("TWILIO_PHONE_NUMBER", "+18312530646").strip()
+        twilio_client = Client(account_sid, auth_token)
         api_base = os.environ.get("API_BASE_URL", BASE_URL)
 
         # Always use the deployed production API URL for Twilio webhooks
@@ -674,9 +691,9 @@ def handle_call_initiate(event):
     except Exception as e:
         logger.error(f"Call initiate failed: {e}")
         err = str(e).lower()
-        if "unverified" in err:
+        if "unverified" in err or "verified" in err or "21212" in err or "21211" in err:
             return cors_json_response(400, {"error": "Number not verified on trial account. Call us at +1 831 298 8145."})
-        return cors_json_response(500, {"error": "Failed to initiate call. Please try again."})
+        return cors_json_response(500, {"error": f"Failed to initiate call: {str(e)}"})
 
 
 def handle_voice_token(event):
@@ -691,16 +708,16 @@ def handle_voice_token(event):
         from twilio.jwt.access_token import AccessToken
         from twilio.jwt.access_token.grants import VoiceGrant
 
-        account_sid    = os.environ["TWILIO_ACCOUNT_SID"]
-        api_key_sid    = os.environ.get("TWILIO_API_KEY_SID", "")
-        api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET", "")
-        twiml_app_sid  = os.environ.get("TWILIO_TWIML_APP_SID", "")
+        account_sid    = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+        api_key_sid    = os.environ.get("TWILIO_API_KEY_SID", "").strip()
+        api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET", "").strip()
+        twiml_app_sid  = os.environ.get("TWILIO_TWIML_APP_SID", "").strip()
 
         if not all([api_key_sid, api_key_secret, twiml_app_sid]):
             return cors_json_response(503, {"error": "Browser calls not configured on this server."})
 
         # ── IP rate limiting ──────────────────────────────────────────────────
-        MAX_TOKENS_PER_DAY = 1000 if os.environ.get("APP_ENV") == "development" else 3
+        MAX_TOKENS_PER_DAY = int(os.environ.get("MAX_TOKENS_PER_DAY", "20"))
         TOKEN_TTL_SECONDS  = 600        # 10 minutes hard cap per call
 
         request_ctx = event.get("requestContext") or {}
@@ -1964,6 +1981,7 @@ def _handle_call_history(event, user):
         result = calls_table.scan(
             FilterExpression="from_number = :ph",
             ExpressionAttributeValues={":ph": phone},
+            Limit=100,
         )
         calls = sorted(result.get("Items", []), key=lambda x: x.get("timestamp", 0), reverse=True)[:20]
 
@@ -2178,7 +2196,7 @@ def handle_incoming(params):
     final_city = phone_profile.get("district", "") or caller_profile.get("district", "") or twilio_city
 
     language = lang_param if (lang_param in LANG_CONFIG) else (
-        caller_profile.get("language", "en") if caller_profile else "en"
+        caller_profile.get("language", "hi") if caller_profile else "hi"
     )
 
     # Save call to DynamoDB
@@ -2214,8 +2232,8 @@ def handle_incoming(params):
         greeting_key = f"greeting_{stored_lang}"
         greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
         if stored_name:
-            # Personalize greeting for returning callers
-            greeting = f"नमस्ते {stored_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?" if stored_lang == "hi" else f"Hello {stored_name}! Welcome to JanAI. How can I assist you today?"
+            # Personalize greeting for returning callers (4 languages + agent gender aware)
+            greeting = _get_personalized_greeting(stored_name, stored_lang, agent_cfg)
 
         stt_url = f"{BASE_URL}/voice/stt?lang={stored_lang}&voice={agent_voice}&agent={stored_agent}" if BASE_URL else f"/voice/stt?lang={stored_lang}&voice={agent_voice}&agent={stored_agent}"  # noqa: F841 (kept for logging only)
 
@@ -2265,14 +2283,7 @@ def _browser_call_welcome(call_sid: str, language: str, voice: str = "", user_na
 
         agent_cfg = AGENT_REGISTRY[agent]
         if user_name:
-            if language == "hi":
-                greeting = f"नमस्ते {user_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?"
-            elif language == "mr":
-                greeting = f"नमस्कार {user_name}! जन-एआई मध्ये आपले स्वागत आहे. मी तुम्हाला कशी मदत करू?"
-            elif language == "ta":
-                greeting = f"வணக்கம் {user_name}! JanAI-க்கு வரவேற்கிறோம்."
-            else:
-                greeting = f"Hello {user_name}! Welcome to JanAI. How can I assist you today?"
+            greeting = _get_personalized_greeting(user_name, language, agent_cfg)
         else:
             greeting_key = f"greeting_{language}"
             greeting = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
@@ -2288,14 +2299,7 @@ def _browser_call_welcome(call_sid: str, language: str, voice: str = "", user_na
     agent_voice = agent_cfg["sarvam_speaker"]
 
     if user_name:
-        if language == "hi":
-            greeting = f"नमस्ते {user_name} जी! जन-एआई में आपका स्वागत है। मैं आपकी क्या सहायता कर सकती हूँ?"
-        elif language == "mr":
-            greeting = f"नमस्कार {user_name}! जन-एआई मध्ये आपले स्वागत आहे. मी तुम्हाला कशी मदत करू?"
-        elif language == "ta":
-            greeting = f"வணக்கம் {user_name}! JanAI-க்கு வரவேற்கிறோம்."
-        else:
-            greeting = f"Hello {user_name}! Welcome to JanAI. How can I assist you today?"
+        greeting = _get_personalized_greeting(user_name, language, agent_cfg)
     else:
         greeting_key = f"greeting_{language}"
         greeting   = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
@@ -2618,9 +2622,11 @@ def handle_gather(params):
                               "baat karao", "baat karo", "bulao", "la do",
                               "de do", "connect", "transfer"]
             text_lower = speech_text.lower()
+            text_trimmed = text_lower.strip()
             agent_named = any(t in text_lower for t in name_triggers.get(requested_agent, []))
             has_switch_phrase = any(p in text_lower for p in switch_phrases)
-            explicitly_named = agent_named and (has_switch_phrase or True)  # name alone is enough
+            name_at_start = any(text_trimmed.startswith(t) for t in name_triggers.get(requested_agent, []))
+            explicitly_named = agent_named and (has_switch_phrase or name_at_start)
             if explicitly_named:
                 # Play transfer announcement in CURRENT agent's voice
                 old_agent_cfg = AGENT_REGISTRY.get(current_agent, AGENT_REGISTRY[DEFAULT_AGENT])
@@ -2878,7 +2884,7 @@ def handle_gather(params):
             
             def _fetch_rag():
                 if not should_use_rag(speech_text): return ""
-                return retrieve_context(get_embedding(speech_text), language)
+                return retrieve_context(get_embedding(speech_text), language, query=speech_text)
             def _fetch_live():
                 return _fetch_data_gov(speech_text, commodity=final_commodity, state=final_state, district=final_district) if DATA_GOV_API_KEY else ""
             def _fetch_web():
@@ -3540,7 +3546,7 @@ def rag_pipeline(query: str, language: str, call_sid: str = "", profile_context:
     context = ""
     if use_rag:
         embedding = get_embedding(query)
-        context   = retrieve_context(embedding, language)
+        context   = retrieve_context(embedding, language, query=query)
 
     # Augment context with live data.gov.in data if API key is set
     live_data = _fetch_data_gov(query) if DATA_GOV_API_KEY else ""
@@ -3591,17 +3597,58 @@ def cosine_similarity(a: list, b: list) -> float:
     return dot / (mag_a * mag_b + 1e-9)
 
 
-def retrieve_context(query_embedding: list, language: str) -> str:
-    """Cosine similarity search against janai-vectors table.
-    Uses language-aware field priority so Marathi / Tamil users get native text.
+# ── Warm Lambda Vector Memory Cache ─────────────────────────────────────
+_VECTOR_CACHE = {"items": [], "timestamp": 0}
+_VECTOR_CACHE_TTL = 3600  # 1 hour TTL
+
+
+def _get_vector_items() -> list:
+    """Fetch vector items from janai-vectors table with warm Lambda memory caching."""
+    now = time.time()
+    if _VECTOR_CACHE["items"] and (now - _VECTOR_CACHE["timestamp"] < _VECTOR_CACHE_TTL):
+        return _VECTOR_CACHE["items"]
+
+    try:
+        items = vectors_table.scan().get("Items", [])
+        if items:
+            _VECTOR_CACHE["items"] = items
+            _VECTOR_CACHE["timestamp"] = now
+            logger.info(f"VECTOR CACHE REFRESHED: Cached {len(items)} items in Lambda warm memory")
+        return items
+    except Exception as e:
+        logger.error(f"Error fetching vector table: {e}")
+        return _VECTOR_CACHE.get("items", [])
+
+
+def retrieve_context(query_embedding: list, language: str, query: str = "") -> str:
+    """Cosine similarity search against cached janai-vectors table.
+    Includes domain/category pre-filtering and language-aware field priority.
     """
-    items = vectors_table.scan().get("Items", [])
+    items = _get_vector_items()
     if not items:
         return "No scheme information loaded yet."
 
+    # Domain / Category pre-filtering if query is provided
+    filtered_items = items
+    if query:
+        q_lower = query.lower()
+        agri_kws = ["kisan", "farm", "crop", "mandi", "bhav", "subsidy", "fertilizer", "seed", "खेती", "किसान", "फसल", "मंडी"]
+        health_kws = ["health", "hospital", "ayushman", "disease", "doctor", "medicine", "इलाज", "अस्पताल", "बीमारी", "दवा"]
+        legal_kws = ["legal", "court", "police", "fir", "rights", "law", "कानून", "अधिकार", "पुलिस"]
+
+        if any(k in q_lower for k in agri_kws):
+            matching = [it for it in items if it.get("category") == "agriculture" or any(k in str(it).lower() for k in ["kisan", "farm", "crop", "mandi"])]
+            if matching: filtered_items = matching
+        elif any(k in q_lower for k in health_kws):
+            matching = [it for it in items if it.get("category") == "health" or any(k in str(it).lower() for k in ["health", "ayushman", "hospital"])]
+            if matching: filtered_items = matching
+        elif any(k in q_lower for k in legal_kws):
+            matching = [it for it in items if it.get("category") == "legal" or any(k in str(it).lower() for k in ["legal", "police", "court"])]
+            if matching: filtered_items = matching
+
     scored = [
         (cosine_similarity(query_embedding, item.get("embedding", [])), item)
-        for item in items if item.get("embedding")
+        for item in filtered_items if item.get("embedding")
     ]
     top = sorted(scored, key=lambda x: x[0], reverse=True)[:3]
 
