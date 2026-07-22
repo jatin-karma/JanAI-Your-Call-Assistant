@@ -384,7 +384,7 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
         _SARVAM_VOICE_MAP = {
             "hitesh": "abhilash",
             "arya": "vidya" if language == "en" else "arya",
-            "vidya": "vidya",
+            "vidya": "vidya" if language == "en" else "arya",
         }
         resolved_speaker = _SARVAM_VOICE_MAP.get(speaker, speaker if speaker in VOICE_OPTIONS else cfg["sarvam_speaker"])
         payload = {
@@ -508,7 +508,7 @@ def _normalize_tts_text(text: str, language: str) -> str:
     if not text or not text.strip():
         return ""
 
-    if language in ("hi", "mr"):
+    if language == "hi":
         replacements = [
             (r"\bJanAI\b", "जन-एआई"),
             (r"\bJan AI\b", "जन-एआई"),
@@ -524,6 +524,40 @@ def _normalize_tts_text(text: str, language: str) -> str:
             (r"\bVidya\b", "विद्या"),
             (r"\bVidhya\b", "विद्या"),
             (r"\bvidya\b", "विद्या"),
+            (r"\bwebsite\b", "वेबसाइट"),
+            (r"\bform\b", "फॉर्म"),
+            (r"\bstatus\b", "स्टेटस"),
+            (r"\bonline\b", "ऑनलाइन"),
+            (r"\bscheme\b", "स्कीम"),
+            (r"\bcard\b", "कार्ड"),
+            (r"\bnumber\b", "नंबर"),
+        ]
+        for pattern, repl in replacements:
+            text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+
+    elif language == "mr":
+        replacements = [
+            (r"\bJanAI\b", "जन-एआय"),
+            (r"\bJan AI\b", "जन-एआय"),
+            (r"\bjan ai\b", "जन-एआय"),
+            (r"\bjaan ai\b", "जन-एआय"),
+            (r"\bArya\b", "आर्या"),
+            (r"\bAarya\b", "आर्या"),
+            (r"\bAria\b", "आर्या"),
+            (r"\barya\b", "आर्या"),
+            (r"\bHitesh\b", "हितेश"),
+            (r"\bHitesha\b", "हितेश"),
+            (r"\bhitesh\b", "हितेश"),
+            (r"\bVidya\b", "विद्या"),
+            (r"\bVidhya\b", "विद्या"),
+            (r"\bvidya\b", "विद्या"),
+            (r"\bwebsite\b", "वेबसाईट"),
+            (r"\bform\b", "फॉर्म"),
+            (r"\bstatus\b", "स्टेटस"),
+            (r"\bonline\b", "ऑनलाइन"),
+            (r"\bscheme\b", "स्कीम"),
+            (r"\bcard\b", "कार्ड"),
+            (r"\bnumber\b", "नंबर"),
         ]
         for pattern, repl in replacements:
             text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
@@ -539,6 +573,10 @@ def _normalize_tts_text(text: str, language: str) -> str:
             (r"\bhitesh\b", "ஹிதேஷ்"),
             (r"\bVidya\b", "வித்யா"),
             (r"\bvidya\b", "வித்யா"),
+            (r"\bwebsite\b", "வெப்சைட்"),
+            (r"\bform\b", "பார்ம்"),
+            (r"\bstatus\b", "ஸ்டேட்டஸ்"),
+            (r"\bonline\b", "ஆன்லைன்"),
         ]
         for pattern, repl in replacements:
             text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
