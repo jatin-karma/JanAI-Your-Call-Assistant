@@ -254,12 +254,12 @@ git commit -m "chore: remove .env from git tracking (keep secrets out of repo)"
 | # | Issue | Severity | File | Line(s) | Effort | Status |
 |:--|:---|:---|:---|:---|:---|:---|
 | 1 | RAG full table scan | 🔴 High | handler.py | 3598 | Medium | 🔲 Open |
-| 2 | Returning caller greeting (Marathi/Tamil) | 🔴 High | handler.py | 2218 | Easy | 🔲 Open |
-| 3 | WebRTC token limit = 3/day | 🔴 High | handler.py | 703 | Easy | 🔲 Open |
-| 4 | Agent switch always triggers | 🔴 High | handler.py | 2623 | Easy | 🔲 Open |
+| 2 | Returning caller greeting (Marathi/Tamil) | 🔴 High | handler.py | 2218 | Easy | ✅ Fixed |
+| 3 | WebRTC token limit = 3/day | 🔴 High | handler.py | 703 | Easy | ✅ Fixed |
+| 4 | Agent switch always triggers | 🔴 High | handler.py | 2623 | Easy | ✅ Fixed |
 | 5 | Login scan — no email GSI | 🟡 Medium | handler.py | 1594, 1672 | Hard | 🔲 Open |
 | 6 | Admin scan has no limit | 🟡 Medium | handler.py | 1964 | Easy | 🔲 Open |
-| 7 | Hitesh greeting uses feminine grammar | 🟡 Medium | handler.py | 2218 | Easy | 🔲 (with #2) |
-| 8 | Language defaults to "en" for phone | 🟡 Medium | handler.py | 2159 | Easy | 🔲 Open |
+| 7 | Hitesh greeting uses feminine grammar | 🟡 Medium | handler.py | 2218 | Easy | ✅ Fixed |
+| 8 | Language defaults to "en" for phone | 🟡 Medium | handler.py | 2159 | Easy | ✅ Fixed |
 | 9 | Ack TTS not parallelized | 🟢 Low | handler.py | ~2865 | Medium | 🔲 Open |
 | 10 | .env file in repository | 🟢 Low | .env | — | Easy | 🔲 Open |
