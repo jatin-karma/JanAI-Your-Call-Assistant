@@ -275,6 +275,28 @@ FOLLOW-UP: After each response, end with ONE short natural follow-up question re
     return base.strip()
 
 
+def _get_best_voice_for_agent_lang(agent: str, language: str) -> str:
+    """
+    Return the optimal Sarvam TTS speaker for the given agent + language combo.
+
+    Rules:
+    - hitesh: always uses 'hitesh' voice (only male Indian voice available)
+    - vidya:  always uses 'vidya' voice (English-optimized female)
+    - arya:   uses 'vidya' for English (clearer), 'arya' for all Indian languages
+
+    This is called whenever language changes mid-call so the voice automatically
+    adapts without the user needing to say 'change voice'.
+    """
+    if agent == "hitesh":
+        return "hitesh"   # male voice — works across all 4 languages
+    if agent == "vidya":
+        return "vidya"    # English-optimized female
+    # arya (default): prefer vidya for English, arya for Indian languages
+    if language == "en":
+        return "vidya"
+    return "arya"
+
+
 def detect_agent_from_intent(speech_text: str, language: str) -> str:
     """Route to the right agent based on utterance intent."""
 
@@ -2556,11 +2578,23 @@ def handle_gather(params):
         if detected and detected != language:
             logger.info(f"Language auto-corrected: {language} → {detected} in handle_gather")
             language = detected
+            # Automatically adapt voice to the new language + current agent
+            voice = _get_best_voice_for_agent_lang(current_agent, language)
+            logger.info(f"Voice auto-adapted to '{voice}' for lang='{language}' agent='{current_agent}'")
 
     # Mid-call voice switch: user says "change voice" / "आवाज़ बदलो" etc.
-    change_triggers = ["change voice", "change my voice", "different voice",
-                       "आवाज़ बदलो", "आवाज बदलो", "दूसरी आवाज़",
-                       "आवाज बदल", "voice change", "குரல் மாற்று", "आवाज बदलवा"]
+    # Covers Hindi, Marathi, Tamil, and English trigger phrases
+    change_triggers = [
+        # English
+        "change voice", "change my voice", "different voice", "voice change", "another voice",
+        # Hindi
+        "आवाज़ बदलो", "आवाज बदलो", "दूसरी आवाज़", "आवाज बदल", "आवाज बदलवा",
+        "aawaz badlo", "awaaz badlo", "aawaz badal", "dusri awaaz", "voice badlo",
+        # Marathi
+        "आवाज बदला", "वेगळा आवाज", "awaj badla", "vegla awaj",
+        # Tamil
+        "குரல் மாற்று", "வேறு குரல்", "kural marru", "vera kural",
+    ]
     if speech_text and any(t in speech_text.lower() for t in change_triggers):
         return _play_voice_select_menu(call_sid, language)
 
@@ -2621,9 +2655,10 @@ def handle_gather(params):
                 _append_listen_gather(response, language, agent_voice, current_agent)
                 return twiml_response(response)
 
-    # Use agent's voice for TTS; always update voice when agent changes
-    agent_voice = AGENT_REGISTRY.get(current_agent, AGENT_REGISTRY[DEFAULT_AGENT])["sarvam_speaker"]
-    voice = agent_voice  # agent always drives voice, ignoring stale URL param
+    # Use best voice for the current agent + language combo
+    # (auto-adapts when user switches language mid-call)
+    agent_voice = _get_best_voice_for_agent_lang(current_agent, language)
+    voice = agent_voice
 
     # ── INTENT DETECTION Layer 1: Structural pre-filter ─────────────
     # Runs BEFORE the LLM call. If the query is structurally simple
