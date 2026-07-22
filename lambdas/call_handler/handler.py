@@ -2510,6 +2510,58 @@ def _get_call_voice(call_sid: str, fallback_voice: str = "arya") -> str:
         return fallback_voice
 
 
+def _get_call_agent(call_sid: str) -> str:
+    """Read the active agent for this call session from DynamoDB."""
+    try:
+        ts = get_call_timestamp(call_sid)
+        item = calls_table.get_item(Key={"call_id": call_sid, "timestamp": ts}).get("Item", {})
+        return item.get("current_agent", "")
+    except Exception:
+        return ""
+
+
+def _update_call_agent(call_sid: str, agent: str):
+    """Update active agent for this call in DynamoDB to lock agent identity across turns."""
+    try:
+        ts = get_call_timestamp(call_sid)
+        calls_table.update_item(
+            Key={"call_id": call_sid, "timestamp": ts},
+            UpdateExpression="SET #ag = :ag",
+            ExpressionAttributeNames={"#ag": "current_agent"},
+            ExpressionAttributeValues={":ag": agent}
+        )
+    except Exception as e:
+        logger.warning(f"DynamoDB agent update failed: {e}")
+
+
+def _get_transfer_intro_msg(agent: str, language: str) -> str:
+    """Generate self-introduction message for the new agent post-transfer."""
+    if agent == "hitesh":
+        msgs = {
+            "hi": "नमस्ते! मैं हितेश हूँ, JanAI का कृषि और मंडी विशेषज्ञ। बताइए, खेती, फसल या मंडी भाव के बारे में क्या जानना चाहते हैं?",
+            "mr": "नमस्कार! मी हितेश आहे, JanAI चा शेती आणि बाजार तज्ञ. सांगा, पिके किंवा बाजार भावाबद्दल काय जाणून घ्यायचे आहे?",
+            "ta": "வணக்கம்! நான் ஹிதேஷ், JanAI-ன் விவசாய நிபுணர். விவசாயம் மற்றும் சந்தை விலை பற்றி என்ன தெரிந்துகொள்ள வேண்டும்?",
+            "en": "Hello! I am Hitesh, JanAI's farming and market price expert. How can I assist you with your crops or mandi rates?",
+        }
+        return msgs.get(language, msgs["hi"])
+    elif agent == "vidya":
+        msgs = {
+            "hi": "नमस्ते! मैं विद्या हूँ, JanAI की स्वास्थ्य और सेहत सलाहकार। बताइए, आज आपकी सेहत या चिकित्सा योजना के बारे में क्या मदद कर सकती हूँ?",
+            "mr": "नमस्कार! मी विद्या आहे, JanAI ची आरोग्य सल्लागार. सांगा, आरोग्याबद्दल मी काय मदत करू शकते?",
+            "ta": "வணக்கம்! நான் வித்யா, JanAI-ன் சுகாதார ஆலோசகர். உடல்நலம் மற்றும் மருத்துவ திட்டங்கள் பற்றி உங்களுக்கு எப்படி உதவட்டும்?",
+            "en": "Hello! I am Vidya, JanAI's health and wellness guide. How can I assist you with your health today?",
+        }
+        return msgs.get(language, msgs["hi"])
+    else:
+        msgs = {
+            "hi": "नमस्ते! मैं आर्या हूँ, JanAI की सरकारी योजना और अधिकार सलाहकार। बताइए, आज मैं आपकी क्या मदद कर सकती हूँ?",
+            "mr": "नमस्कार! मी आर्या आहे, JanAI ची सरकारी योजना सल्लागार. सांगा, आज मी आपली काय मदत करू शकते?",
+            "ta": "வணக்கம்! நான் ஆர்யா, அரசு திட்டங்கள் மற்றும் உரிமைகள் பற்றிய ஆலோசகர். உங்களுக்கு எப்படி உதவட்டும்?",
+            "en": "Hello! I am Arya, JanAI's civic rights and government scheme advisor. How can I help you today?",
+        }
+        return msgs.get(language, msgs["hi"])
+
+
 # ── Step 3: User spoke — kick off async processing ──────────
 def handle_stt(params):
     """POST /voice/stt — Twilio <Record> callback. Downloads recording, transcribes via Sarvam Saaras v3."""
@@ -2577,7 +2629,7 @@ def handle_gather(params):
     speech_text = _clean_stt_transcript(raw_speech)
     language    = params.get("lang", "hi")
     voice       = params.get("voice", "") or _get_call_voice(call_sid)
-    current_agent = params.get("agent", "")
+    current_agent = params.get("agent", "").strip() or _get_call_agent(call_sid)
 
     # Confidence check (Task 7 fallback for low-confidence ambient noise)
     confidence_str = params.get("Confidence", "1.0")
@@ -2698,6 +2750,7 @@ def handle_gather(params):
     # ── Detect or maintain current agent ───────────────────────────
     if not current_agent:
         current_agent = detect_agent_from_intent(speech_text, language)
+        _update_call_agent(call_sid, current_agent)
     else:
         # Check for mid-call agent switch request
         requested_agent = detect_agent_from_intent(speech_text, language)
@@ -2744,10 +2797,9 @@ def handle_gather(params):
                         "en": f"Sure, let me connect you to {AGENT_REGISTRY[requested_agent]['name']}. One moment.",
                     }
                 current_agent = requested_agent
-                agent_cfg = AGENT_REGISTRY[current_agent]
-                greeting_key = f"greeting_{language}"
-                switch_msg = agent_cfg.get(greeting_key, agent_cfg["greeting_hi"])
-                agent_voice = agent_cfg["sarvam_speaker"]
+                _update_call_agent(call_sid, current_agent)
+                switch_msg = _get_transfer_intro_msg(current_agent, language)
+                agent_voice = _get_best_voice_for_agent_lang(current_agent, language)
                 cfg = LANG_CONFIG.get(language, LANG_CONFIG["en"])
                 response = VoiceResponse()
                 # Transfer announcement in old agent's voice
@@ -2899,10 +2951,9 @@ def handle_gather(params):
             _old_cfg    = AGENT_REGISTRY.get(current_agent, AGENT_REGISTRY[DEFAULT_AGENT])
             _old_voice  = _old_cfg["sarvam_speaker"]
             _old_gender = _old_cfg.get("gender", "female")
-            _new_cfg    = AGENT_REGISTRY[target_agent]
-            _new_voice  = _new_cfg["sarvam_speaker"]
-            _greeting_k = f"greeting_{language}"
-            _switch_greeting = _new_cfg.get(_greeting_k, _new_cfg["greeting_hi"])
+            _update_call_agent(call_sid, target_agent)
+            _new_voice  = _get_best_voice_for_agent_lang(target_agent, language)
+            _switch_greeting = _get_transfer_intro_msg(target_agent, language)
             _xfer_msgs = {
                 "hi": f"ठीक है, अभी जोड़ता हूँ।" if _old_gender == "male" else f"ठीक है, अभी जोड़ती हूँ।",
                 "mr": "ठीक आहे, एक क्षण.",
