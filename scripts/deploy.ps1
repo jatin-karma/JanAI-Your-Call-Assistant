@@ -70,6 +70,10 @@ function Deploy-Lambda {
     
     Write-Host "  Waiting for activation..."
     aws lambda wait function-updated --function-name $FunctionName --region $REGION
+    
+    Write-Host "  Updating Lambda environment variables..." -ForegroundColor Yellow
+    python scripts/update_env_vars.py $FunctionName
+    
     Write-Host "  DEPLOYED at $result" -ForegroundColor Green
 }
 
