@@ -2493,7 +2493,7 @@ def handle_gather(params):
         confidence = 1.0
         
     _words = speech_text.split() if speech_text else []
-    if confidence < 0.35 and len(_words) < 3:
+    if confidence < 0.25 and len(_words) < 3:
         logger.info(f"Low confidence ({confidence}) short query: '{speech_text}'. Re-prompting caller.")
         return ask_again(language, voice, current_agent)
 
@@ -3817,17 +3817,20 @@ def _append_listen_gather(response, language: str, voice: str = "", agent: str =
         if BASE_URL else
         f"/voice/gather?lang={language}&voice={_voice}&agent={_agent}"
     )
-    # Always use hi-IN for Twilio STT — it handles Hindi + Hinglish + language-switch commands.
-    # Using ta-IN would prevent the user from switching back to Hindi (Twilio can't understand Hindi in ta-IN mode).
-    _stt_lang = "hi-IN" if language in ("hi", "mr") else ("en-IN" if language == "en" else cfg["twilio_speech_lang"])
+    # STT language: match the active conversation language so Twilio recognizes it correctly.
+    # If user switches language mid-call, auto-detect in handle_gather() will catch it from the transcript.
+    _stt_lang = cfg.get("twilio_speech_lang", "hi-IN")
+    # For Hindi/Marathi, hi-IN handles both scripts well; for Tamil/English use their native model
+    if language == "mr":
+        _stt_lang = "hi-IN"  # Marathi works best with hi-IN model (same Devanagari script)
     _all_hints = cfg.get("hints", "") + ", hindi, english, marathi, tamil, bhasha, language, switch, arya, hitesh, vidya"
     g = Gather(
         input="speech",
         action=gather_url,
         method="POST",
         language=_stt_lang,
-        speech_timeout="2",
-        timeout=10,
+        speech_timeout="3",   # Increased from 2s: gives slow/elderly/rural callers more time to finish
+        timeout=12,            # Increased from 10s: longer patience before re-prompting
         hints=_all_hints,
         enhanced=True,
     )
