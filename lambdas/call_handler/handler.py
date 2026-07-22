@@ -369,6 +369,7 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
     """
     if not text or not text.strip():
         return None
+    text = _normalize_tts_text(text, language)
     # Hitesh always uses Sarvam Bulbul v2
     if speaker != "hitesh" and TTS_PROVIDER == "cartesia" and CARTESIA_API_KEY:
         result = _cartesia_tts(text, language, speaker=speaker or "arya")
@@ -427,6 +428,7 @@ def _cartesia_tts(text: str, language: str, speaker: str = "arya") -> str | None
     """Call Cartesia Sonic-3 TTS. 40ms TTFA, Hindi/Hinglish, emotion support. Returns presigned S3 URL."""
     if not text or not text.strip():
         return None
+    text = _normalize_tts_text(text, language)
     try:
         # For English, prefer Blake voice (Arushi is Hindi-only)
         effective_speaker = speaker
@@ -501,19 +503,61 @@ def _cached_tts(text: str, language: str, speaker: str = "") -> str | None:
 
 
 
-_NAME_FIXES = {
-    "hi": {"Arya": "आर्या", "Hitesh": "हितेश", "Vidya": "विद्या", "JanAI": "जनएआई"},
-    "mr": {"Arya": "आर्या", "Hitesh": "हितेश", "Vidya": "विद्या", "JanAI": "जनएआई"},
-    "ta": {"Arya": "ஆர்யா", "Hitesh": "ஹிதேஷ்", "Vidya": "வித்யா", "JanAI": "ஜான்ஏஐ"},
-}
+def _normalize_tts_text(text: str, language: str) -> str:
+    """Phonetic text normalizer to ensure 100% consistent agent and brand pronunciation across all TTS engines."""
+    if not text or not text.strip():
+        return ""
+
+    if language in ("hi", "mr"):
+        replacements = [
+            (r"\bJanAI\b", "जन-एआई"),
+            (r"\bJan AI\b", "जन-एआई"),
+            (r"\bjan ai\b", "जन-एआई"),
+            (r"\bjaan ai\b", "जन-एआई"),
+            (r"\bArya\b", "आर्या"),
+            (r"\bAarya\b", "आर्या"),
+            (r"\bAria\b", "आर्या"),
+            (r"\barya\b", "आर्या"),
+            (r"\bHitesh\b", "हितेश"),
+            (r"\bHitesha\b", "हितेश"),
+            (r"\bhitesh\b", "हितेश"),
+            (r"\bVidya\b", "विद्या"),
+            (r"\bVidhya\b", "विद्या"),
+            (r"\bvidya\b", "विद्या"),
+        ]
+        for pattern, repl in replacements:
+            text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+
+    elif language == "ta":
+        replacements = [
+            (r"\bJanAI\b", "ஜன்-ஏஐ"),
+            (r"\bJan AI\b", "ஜன்-ஏஐ"),
+            (r"\bjan ai\b", "ஜன்-ஏஐ"),
+            (r"\bArya\b", "ஆர்யா"),
+            (r"\barya\b", "ஆர்யா"),
+            (r"\bHitesh\b", "ஹிதேஷ்"),
+            (r"\bhitesh\b", "ஹிதேஷ்"),
+            (r"\bVidya\b", "வித்யா"),
+            (r"\bvidya\b", "வித்யா"),
+        ]
+        for pattern, repl in replacements:
+            text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+
+    elif language == "en":
+        replacements = [
+            (r"\bJanAI\b", "Jan A-I"),
+            (r"\bjanai\b", "Jan A-I"),
+            (r"\bJan AI\b", "Jan A-I"),
+        ]
+        for pattern, repl in replacements:
+            text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+
+    return text
+
 
 def _fix_names_for_tts(text, language):
-    fixes = _NAME_FIXES.get(language)
-    if not fixes:
-        return text
-    for latin, native in fixes.items():
-        text = text.replace(latin, native)
-    return text
+    return _normalize_tts_text(text, language)
+
 
 def tts_say(target, text: str, language: str, speaker: str = ""):
     """
@@ -521,7 +565,7 @@ def tts_say(target, text: str, language: str, speaker: str = ""):
     Tries Sarvam AI first (all 4 languages); falls back to Amazon Polly via Twilio builtin <Say>.
     speaker: optional voice override (arya / vidya / hitesh).
     """
-    text = _fix_names_for_tts(text, language)
+    text = _normalize_tts_text(text, language)
     audio_url = sarvam_tts(text, language, speaker=speaker)
     # Add a short 300ms pause to stabilize the telephony line and prevent audio clipping
     try:
