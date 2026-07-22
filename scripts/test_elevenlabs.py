@@ -65,18 +65,18 @@ sarvam_key = os.environ.get("SARVAM_API_KEY", "")
 if not sarvam_key:
     print("Skipping Sarvam test: SARVAM_API_KEY not set")
 else:
-t4 = time.time()
-r5 = requests.post(
-    "https://api.sarvam.ai/text-to-speech",
-    json={
-        "inputs": ["नमस्ते, मैं आपकी मदद कर सकती हूँ।"],
-        "target_language_code": "hi-IN",
-        "speaker": "arya",
-        "model": "bulbul:v2",
-        "pace": 1.25
-    },
-    headers={"api-subscription-key": sarvam_key},
-    timeout=8
-)
-t5 = time.time()
-print(f"Sarvam: status={r5.status_code}, time={t5-t4:.2f}s")
+    t4 = time.time()
+    r5 = requests.post(
+        "https://api.sarvam.ai/text-to-speech",
+        json={
+            "inputs": ["नमस्ते, मैं आपकी मदद कर सकती हूँ।"],
+            "target_language_code": "hi-IN",
+            "speaker": "arya",
+            "model": "bulbul:v2",
+            "pace": 1.25
+        },
+        headers={"api-subscription-key": sarvam_key},
+        timeout=8
+    )
+    t5 = time.time()
+    print(f"Sarvam: status={r5.status_code}, time={t5-t4:.2f}s")
