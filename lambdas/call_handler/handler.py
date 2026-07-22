@@ -498,9 +498,23 @@ def _cached_tts(text: str, language: str, speaker: str = "") -> str | None:
 
 
 def _normalize_tts_text(text: str, language: str) -> str:
-    """Phonetic text normalizer to ensure 100% consistent agent and brand pronunciation across all TTS engines."""
+    """Phonetic text normalizer & punctuation sanitizer to ensure 100% clean speech with no spoken punctuation words."""
     if not text or not text.strip():
         return ""
+
+    # 1. Strip internal system control tags ([HANGUP], [FETCH_DATA...], [WEB_SEARCH], [SWITCH...])
+    text = re.sub(r"\[(HANGUP|FETCH_DATA|WEB_SEARCH|SWITCH)[^\]]*\]", "", text)
+
+    # 2. Strip literal spoken punctuation words in English, Hindi, Marathi & Tamil
+    text = re.sub(r"\b(question mark|exclamation mark|full stop|period|dash|slash|bullet point)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(प्रश्नचिह्न|विस्मयादिबोधक|पूर्णविराम|डैश|स्लैश|क्वेश्चन मार्क|एक्सक्लेमेशन मार्क)\b", "", text, flags=re.IGNORECASE)
+
+    # 3. Strip all markdown formatting symbols (*, _, #, `, ~, >, |, [, ])
+    text = re.sub(r"[\*\_\#\`\~\>\|\[\]]", "", text)
+
+    # 4. Replace ?, !, :, ; with natural pause spaces so TTS inflects naturally without pronouncing symbol names
+    text = text.replace("?", " ").replace("!", " ").replace(":", " ").replace(";", " ")
+    text = re.sub(r"\s+", " ", text).strip()
 
     if language == "hi":
         replacements = [
