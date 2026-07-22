@@ -376,9 +376,9 @@ def sarvam_tts(text: str, language: str, speaker: str = "") -> str | None:
     try:
         cfg = LANG_CONFIG.get(language, LANG_CONFIG["en"])
         _SARVAM_VOICE_MAP = {
-            "hitesh": "abhilash",  # Male Indian voice
-            "arya": "arya",        # Female Indian voice 1
-            "vidya": "meera",      # Female Indian voice 2 (gentle, distinct from Arya)
+            "hitesh": "abhilash",  # Male Indian voice (all 4 languages)
+            "arya": "arya",        # Female Indian voice 1 (all 4 languages)
+            "vidya": "vidya" if language in ("ta", "en") else "meera",  # Female Indian voice 2
         }
         resolved_speaker = _SARVAM_VOICE_MAP.get(speaker, speaker if speaker in VOICE_OPTIONS else cfg["sarvam_speaker"])
         payload = {
@@ -2704,13 +2704,20 @@ def handle_gather(params):
         if requested_agent != current_agent:
             # Switch if user explicitly named an agent OR used a connecting phrase
             name_triggers = {
-                "arya":   ["arya", "aria", "aarya", "ariya", "आर्या"],
-                "hitesh": ["hitesh", "hitesha", "हितेश"],
-                "vidya":  ["vidya", "vidhya", "विद्या"],
+                "arya":   ["arya", "aria", "aarya", "ariya", "ஆரியா", "आर्या"],
+                "hitesh": ["hitesh", "hitesha", "हितेश", "ஹிதேஷ்"],
+                "vidya":  ["vidya", "vidhya", "विद्या", "வித்யா"],
             }
-            switch_phrases = ["se baat", "ko bulao", "se milana", "se milao",
-                              "baat karao", "baat karo", "bulao", "la do",
-                              "de do", "connect", "transfer"]
+            switch_phrases = [
+                # Hindi / Hinglish
+                "se baat", "ko bulao", "se milana", "se milao", "baat karao", "baat karo", "bulao", "la do", "de do",
+                # Marathi
+                "शी बोला", "शी बोल", "ला बोलवा", "शी कनेक्ट करा", "कडे वर्ग करा",
+                # Tamil
+                "கிட்ட பேசுங்க", "கூப்பிடுங்க", "இணைக்கவும்", "பேசணும்",
+                # English
+                "connect to", "talk to", "speak with", "transfer to", "switch to", "call"
+            ]
             text_lower = speech_text.lower()
             text_trimmed = text_lower.strip()
             agent_named = any(t in text_lower for t in name_triggers.get(requested_agent, []))
